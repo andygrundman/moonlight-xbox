@@ -113,7 +113,7 @@ bool MoonlightClient::SetDisplayHDR(bool enabled) {
 			Concurrency::create_task(hdmi->RequestSetCurrentDisplayModeAsync(mode, hdrOption))
 			.then([&](Concurrency::task<bool> hdrResult) {
 				if (hdrResult.get()) {
-					Utils::Log("SetDisplayHDR(): mode switch requested successfully.\n");
+					Utils::Log("SetDisplayHDR(): mode switch completed successfully.\n");
 					std::atomic_fetch_add(&hdrStatus, 2);
 				}
 				else {
@@ -123,8 +123,8 @@ bool MoonlightClient::SetDisplayHDR(bool enabled) {
 			});
 
 			// wait for the hdrResult callback indicating the mode has changed
-			static int timeout = 20; // 5s
-			while (hdrStatus == -1 && --timeout) {
+			int timeout = 20; // 5s
+			while (hdrStatus == -1 && --timeout > 0) {
 				SleepEx(250, FALSE);
 			}
 			break;
@@ -185,17 +185,7 @@ int MoonlightClient::StartStreaming(std::shared_ptr<DX::DeviceResources> res, St
 	config.supportedVideoFormats = VIDEO_FORMAT_H264;
 	if (!isXboxOne) {
 		config.supportedVideoFormats |= VIDEO_FORMAT_H265;
-	}
-
-	if (sConfig->enableHDR && !isXboxOne) {
-		if (isXboxConsole) {
-			// Series S/X
-			if (SetDisplayHDR(true)) {
-				config.supportedVideoFormats |= VIDEO_FORMAT_H265_MAIN10;
-				config.colorSpace = COLORSPACE_REC_2020;
-			}
-		}
-		else {
+		if (sConfig->enableHDR) {
 			config.supportedVideoFormats |= VIDEO_FORMAT_H265_MAIN10;
 			config.colorSpace = COLORSPACE_REC_2020;
 		}
