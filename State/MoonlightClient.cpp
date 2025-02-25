@@ -155,6 +155,10 @@ MoonlightClient::MoonlightClient() {
 		if (current->IsSmpte2084Supported) {
 			isHDR = true;
 		}
+		if (current->ColorSpace == HdmiDisplayColorSpace::RgbFull) {
+			// RgbFull is the SDR mode used when Xbox is set to "PC RGB" in Video Fidelity -> Color space
+			isRGBFull = true;
+		}
 	}
 }
 
@@ -165,7 +169,6 @@ int MoonlightClient::StartStreaming(std::shared_ptr<DX::DeviceResources> res, St
 	GAMING_DEVICE_MODEL_INFORMATION info = {};
 	GetGamingDeviceModelInformation(&info);
 	bool isXboxOne = (info.vendorId == GAMING_DEVICE_VENDOR_ID_MICROSOFT && info.deviceId == GAMING_DEVICE_DEVICE_ID_XBOX_ONE);
-	bool isXboxConsole = info.vendorId == GAMING_DEVICE_VENDOR_ID_MICROSOFT;
 
 	//Thanks to https://stackoverflow.com/questions/11746146/how-to-convert-platformstring-to-char
 	std::wstring fooW(sConfig->hostname->Begin());
@@ -178,17 +181,17 @@ int MoonlightClient::StartStreaming(std::shared_ptr<DX::DeviceResources> res, St
 	config.height = sConfig->height;
 	config.bitrate = sConfig->bitrate;
 	config.clientRefreshRateX100 = sConfig->FPS * 100;
+	// XXX I am not yet sure if this is the source of clipping issues
+	// config.colorRange = this->isRGBFull ? COLOR_RANGE_FULL : COLOR_RANGE_LIMITED;
 	config.colorRange = COLOR_RANGE_LIMITED;
+	config.colorSpace = COLORSPACE_REC_601;
 	config.encryptionFlags = 0;
 	config.fps = sConfig->FPS;
 	config.packetSize = 1024;
 	config.supportedVideoFormats = VIDEO_FORMAT_H264;
 	if (!isXboxOne) {
 		config.supportedVideoFormats |= VIDEO_FORMAT_H265;
-		if (sConfig->enableHDR) {
-			config.supportedVideoFormats |= VIDEO_FORMAT_H265_MAIN10;
-			config.colorSpace = COLORSPACE_REC_2020;
-		}
+		config.supportedVideoFormats |= VIDEO_FORMAT_H265_MAIN10;
 	}
 
 	config.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
@@ -348,6 +351,10 @@ int MoonlightClient::Connect(const char* hostname) {
 
 bool MoonlightClient::IsHDR() {
 	return isHDR;
+}
+
+bool MoonlightClient::IsRGBFull() {
+	return isRGBFull;
 }
 
 bool MoonlightClient::IsPaired() {

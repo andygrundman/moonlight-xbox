@@ -54,6 +54,8 @@ namespace moonlight_xbox_dx
 		ModelViewProjectionConstantBuffer	m_constantBufferData;
 
 		// Variables used with the rendering loop.
+		AVColorTransferCharacteristic m_LastColorTrc;
+		DXGI_HDR_METADATA_HDR10 m_lastHdr10;
 		bool	m_loadingComplete;
 		bool	m_LastFullRange;
 		int		m_LastColorSpace;

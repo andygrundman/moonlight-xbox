@@ -77,11 +77,13 @@ static_assert(sizeof(CSC_CONST_BUF) % 16 == 0, "Constant buffer sizes must be a 
 
 // Loads vertex and pixel shaders from files and instantiates the cube geometry.
 VideoRenderer::VideoRenderer(const std::shared_ptr<DX::DeviceResources>& deviceResources, MoonlightClient* mclient, StreamConfiguration^ sConfig) :
+	m_LastColorTrc(AVCOL_TRC_UNSPECIFIED),
 	m_loadingComplete(false),
 	m_deviceResources(deviceResources),
 	client(mclient),
 	configuration(sConfig)
 {
+	ZeroMemory(&m_lastHdr10, sizeof(DXGI_HDR_METADATA_HDR10));
 	CreateDeviceDependentResources();
 	CreateWindowSizeDependentResources();
 }
@@ -184,17 +186,55 @@ bool VideoRenderer::Render()
 
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_luminance_shader_resource_view;
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_chrominance_shader_resource_view;
-	D3D11_SHADER_RESOURCE_VIEW_DESC luminance_desc = CD3D11_SHADER_RESOURCE_VIEW_DESC(renderTexture.Get(), D3D11_SRV_DIMENSION_TEXTURE2D, (renderTextureDesc.Format == DXGI_FORMAT_P010) ? DXGI_FORMAT_R16_UNORM : DXGI_FORMAT_R8_UNORM);
-	DX::ThrowIfFailed(m_deviceResources->GetD3DDevice()->CreateShaderResourceView(renderTexture.Get(), &luminance_desc, m_luminance_shader_resource_view.GetAddressOf()), "Luminance SRV Creation");
-	D3D11_SHADER_RESOURCE_VIEW_DESC chrominance_desc = CD3D11_SHADER_RESOURCE_VIEW_DESC(renderTexture.Get(), D3D11_SRV_DIMENSION_TEXTURE2D, (renderTextureDesc.Format == DXGI_FORMAT_P010) ? DXGI_FORMAT_R16G16_UNORM : DXGI_FORMAT_R8G8_UNORM);
-	DX::ThrowIfFailed(m_deviceResources->GetD3DDevice()->CreateShaderResourceView(renderTexture.Get(), &chrominance_desc, m_chrominance_shader_resource_view.GetAddressOf()), "Chrominance SRV Creation");
+	D3D11_SHADER_RESOURCE_VIEW_DESC luminance_desc = CD3D11_SHADER_RESOURCE_VIEW_DESC(
+		renderTexture.Get(),
+		D3D11_SRV_DIMENSION_TEXTURE2D,
+		(renderTextureDesc.Format == DXGI_FORMAT_P010) ? DXGI_FORMAT_R16_UNORM : DXGI_FORMAT_R8_UNORM
+	);
+	DX::ThrowIfFailed(m_deviceResources->GetD3DDevice()->CreateShaderResourceView(
+		renderTexture.Get(), &luminance_desc, m_luminance_shader_resource_view.GetAddressOf()), "Luminance SRV Creation"
+	);
+
+	D3D11_SHADER_RESOURCE_VIEW_DESC chrominance_desc = CD3D11_SHADER_RESOURCE_VIEW_DESC(
+		renderTexture.Get(),
+		D3D11_SRV_DIMENSION_TEXTURE2D,
+		(renderTextureDesc.Format == DXGI_FORMAT_P010) ? DXGI_FORMAT_R16G16_UNORM : DXGI_FORMAT_R8G8_UNORM
+	);
+	DX::ThrowIfFailed(m_deviceResources->GetD3DDevice()->CreateShaderResourceView(
+		renderTexture.Get(), &chrominance_desc, m_chrominance_shader_resource_view.GetAddressOf()), "Chrominance SRV Creation"
+	);
 	m_deviceResources->GetD3DDeviceContext()->PSSetShaderResources(0, 1, m_luminance_shader_resource_view.GetAddressOf());
 	m_deviceResources->GetD3DDeviceContext()->PSSetShaderResources(1, 1, m_chrominance_shader_resource_view.GetAddressOf());
 
 	this->bindColorConversion(frame);
 
 	m_deviceResources->GetD3DDeviceContext()->DrawIndexed(6, 0, 0);
-	m_deviceResources->GetD3DDeviceContext()->Flush();
+
+	if (frame->color_trc != m_LastColorTrc) {
+        if (frame->color_trc == AVCOL_TRC_SMPTE2084) {
+            // Switch to Rec 2020 PQ (SMPTE ST 2084) colorspace for HDR10 rendering
+			HRESULT hr = m_deviceResources->GetSwapChain()->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+            if (SUCCEEDED(hr)) {
+				Utils::Log("SetColorSpace1() to DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 ok\n");
+			}
+			else {
+				Utils::Log("SetColorSpace1() to DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 failed\n");
+			}
+        }
+        else {
+            // Restore default sRGB colorspace
+            HRESULT hr = m_deviceResources->GetSwapChain()->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
+			if (SUCCEEDED(hr)) {
+				Utils::Log("SetColorSpace1() to DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709 ok\n");
+			}
+			else {
+				Utils::Log("SetColorSpace1() to DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709 failed\n");
+			}
+        }
+
+        m_LastColorTrc = frame->color_trc;
+    }
+
 	Utils::stats._framesDecoded++;
 	UpdateStats(start);
 	return true;
@@ -581,33 +621,17 @@ void VideoRenderer::SetHDR(bool enabled)
 		hdr10Metadata.MaxContentLightLevel = sunshineHdrMetadata.maxContentLightLevel;
 		hdr10Metadata.MaxFrameAverageLightLevel = sunshineHdrMetadata.maxFrameAverageLightLevel;
 
-		hr = m_deviceResources->GetSwapChain()->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(hdr10Metadata), &hdr10Metadata);
-		if (SUCCEEDED(hr)) {
-			Utils::Log("SetHDRMetaData() ok\n");
-		}
-		else {
-			Utils::Log("SetHDRMetaData() failed\n");
-		}
-
-		// Switch to Rec 2020 PQ (SMPTE ST 2084) colorspace for HDR10 rendering
-		hr = m_deviceResources->GetSwapChain()->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
-		if (SUCCEEDED(hr)) {
-			Utils::Log("SetColorSpace1() to BT2020 ok\n");
-		}
-		else {
-			Utils::Log("SetColorSpace1() to BT2020 failed\n");
+		// Only set metadata if it is unchanged from the last one we set
+		// Avoids the warning: IDXGISwapChain4::SetHDRMetaData: Redundant invocation on unchanged metadata could result in presentation performance inefficiency.
+		if (memcmp(&this->m_lastHdr10, &hdr10Metadata, sizeof(DXGI_HDR_METADATA_HDR10))) {
+            memcpy(&this->m_lastHdr10, &hdr10Metadata, sizeof(DXGI_HDR_METADATA_HDR10));
+			hr = m_deviceResources->GetSwapChain()->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(DXGI_HDR_METADATA_HDR10), &this->m_lastHdr10);
+			if (FAILED(hr)) {
+				Utils::Log("SetHDRMetaData() failed\n");
+			}
 		}
 	}
 	else {
-		// Restore default sRGB colorspace
-		hr = m_deviceResources->GetSwapChain()->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
-		if (SUCCEEDED(hr)) {
-			Utils::Log("SetColorSpace1(SDR 709) ok\n");
-		}
-		else {
-			Utils::Log("SetColorSpace1(SDR 709) failed\n");
-		}
-
 		hr = m_deviceResources->GetSwapChain()->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_NONE, 0, nullptr);
 		if (SUCCEEDED(hr)) {
 			Utils::Log("SetHDRMetaData(none) ok\n");

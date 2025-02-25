@@ -16,10 +16,11 @@ namespace moonlight_xbox_dx {
 	public:
 		MoonlightClient();
 		bool SetDisplayHDR(bool enabled);
-		bool IsHDR();
 		int StartStreaming(std::shared_ptr<DX::DeviceResources> res, StreamConfiguration ^config);
 		int Connect(const char* hostname);
+		bool IsHDR();
 		bool IsPaired();
+		bool IsRGBFull();
 		int Pair();
 		char *GeneratePIN();
 		std::vector<MoonlightApp^> MoonlightClient::GetApplications();
@@ -54,5 +55,6 @@ namespace moonlight_xbox_dx {
 		bool useSoftwareEncoder = false;
 		int activeGamepadMask = 0;
 		bool isHDR = false;
+		bool isRGBFull = false;
 	};
 }
