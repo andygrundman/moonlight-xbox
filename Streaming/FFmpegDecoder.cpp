@@ -211,6 +211,7 @@ namespace moonlight_xbox_dx {
 			return false;
 		}
 		LiCompleteVideoFrame(frameHandle, DR_OK);
+		Utils::stats.totalVideoBytes += length;
 		return true;
 	}
 

@@ -110,7 +110,13 @@ void UpdateStats(LARGE_INTEGER start) {
 	Utils::stats._accumulatedSecondsEnd += endMs;
 	Utils::stats._timeAtEnd = end;
 	if (Utils::stats._accumulatedSeconds >= 1000) {
+
+        char buff[64] = {};
+        sprintf_s(buff, "_accumulatedSeconds: %f _accumulatedSecondsEnd: %f\n", Utils::stats._accumulatedSeconds, Utils::stats._accumulatedSecondsEnd);
+        OutputDebugStringA(buff);
+
 		Utils::stats.fps = Utils::stats._framesDecoded;
+		Utils::stats.averageVideoMbps = (Utils::stats.totalVideoBytes * 8.0 / 1000000.0 / Utils::stats._accumulatedSeconds);
 		Utils::stats.averageDecodeTime = (double)Utils::stats.totalDecodeMs / ((double)Utils::stats._framesDecoded);
 		Utils::stats.averageRenderingTime = Utils::stats._accumulatedSeconds / ((double)Utils::stats._framesDecoded);
 		Utils::stats.averageNetworkTime = Utils::stats._accumulatedSecondsEnd / ((double)Utils::stats._framesDecoded);
@@ -119,6 +125,7 @@ void UpdateStats(LARGE_INTEGER start) {
 		Utils::stats._accumulatedSecondsEnd = 0;
 		Utils::stats._framesDecoded = 0;
 		Utils::stats.totalDecodeMs = 0;
+		Utils::stats.totalVideoBytes = 0;
 	}
 }
 

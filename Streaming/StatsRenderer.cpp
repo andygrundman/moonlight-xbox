@@ -59,6 +59,7 @@ void StatsRenderer::Update(DX::StepTimer const& timer)
 		m_text += L"AVG Decode time: " + std::to_wstring(Utils::stats.averageDecodeTime) + L"ms \n";
 		m_text += L"AVG Rendering Time: " + std::to_wstring(Utils::stats.averageRenderingTime) + L"ms \n";
 		m_text += L"AVG Total Time: " + std::to_wstring(Utils::stats.averageTotalTime) + L"ms \n";
+		m_text += L"Video bitrate: " + std::to_wstring(Utils::stats.averageVideoMbps) + L"Mbps \n";
 		m_text += L"Queue Size: " + std::to_wstring(Utils::stats.queueSize) + L"\n";
 	}
 }

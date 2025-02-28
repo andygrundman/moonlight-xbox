@@ -20,6 +20,8 @@ namespace moonlight_xbox_dx {
 			float compositionScaleMultiplier = 0;
 			uint64_t totalDecodeMs = 0;
 			double averageDecodeTime = 0.0;
+			uint64_t totalVideoBytes = 0;
+			double averageVideoMbps = 0.0;
 		};
 
 		extern std::vector<std::wstring> logLines;
