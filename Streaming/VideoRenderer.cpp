@@ -111,12 +111,14 @@ void UpdateStats(LARGE_INTEGER start) {
 	Utils::stats._timeAtEnd = end;
 	if (Utils::stats._accumulatedSeconds >= 1000) {
 		Utils::stats.fps = Utils::stats._framesDecoded;
+		Utils::stats.averageDecodeTime = (double)Utils::stats.totalDecodeMs / ((double)Utils::stats._framesDecoded);
 		Utils::stats.averageRenderingTime = Utils::stats._accumulatedSeconds / ((double)Utils::stats._framesDecoded);
 		Utils::stats.averageNetworkTime = Utils::stats._accumulatedSecondsEnd / ((double)Utils::stats._framesDecoded);
 		Utils::stats.averageTotalTime = Utils::stats.averageRenderingTime + Utils::stats.averageNetworkTime;
 		Utils::stats._accumulatedSeconds = 0;
 		Utils::stats._accumulatedSecondsEnd = 0;
 		Utils::stats._framesDecoded = 0;
+		Utils::stats.totalDecodeMs = 0;
 	}
 }
 
@@ -196,7 +198,7 @@ bool VideoRenderer::Render()
 	DX::ThrowIfFailed(m_deviceResources->GetD3DDevice()->CreateShaderResourceView(renderTexture.Get(), &chrominance_desc, m_chrominance_shader_resource_view.GetAddressOf()), "Chrominance SRV Creation");
 	m_deviceResources->GetD3DDeviceContext()->PSSetShaderResources(0, 1, m_luminance_shader_resource_view.GetAddressOf());
 	m_deviceResources->GetD3DDeviceContext()->PSSetShaderResources(1, 1, m_chrominance_shader_resource_view.GetAddressOf());
-	
+
 	this->bindColorConversion(frame);
 
 	m_deviceResources->GetD3DDeviceContext()->DrawIndexed(6, 0, 0);
@@ -567,7 +569,7 @@ void VideoRenderer::SetHDR(bool enabled)
 			Utils::Log("Set display mode is not HDR compatible.");
 			return;
 		}
-		
+
 		if (hdi)
 		{
 			m_lastDisplayMode = hdi->GetCurrentDisplayMode();
@@ -580,9 +582,9 @@ void VideoRenderer::SetHDR(bool enabled)
 			return;
 		}
 
-		auto msg = "Set HDR: " + requestedMode->ResolutionWidthInRawPixels + "x" + requestedMode->ResolutionHeightInRawPixels 
-					+ " @ " + requestedMode->RefreshRate + "hz " 
-					+ (requestedMode->BitsPerPixel / 3) + "bit " 
+		auto msg = "Set HDR: " + requestedMode->ResolutionWidthInRawPixels + "x" + requestedMode->ResolutionHeightInRawPixels
+					+ " @ " + requestedMode->RefreshRate + "hz "
+					+ (requestedMode->BitsPerPixel / 3) + "bit "
 					+ requestedMode->ColorSpace.ToString() + " "
 					+ requestedMode->PixelEncoding.ToString() + "\n";
 		Utils::Log(Utils::PlatformStringToStdString(msg).c_str());
@@ -610,7 +612,7 @@ void VideoRenderer::SetHDR(bool enabled)
 		hdr10Metadata.MaxFrameAverageLightLevel = hdrMetadata.MaxFrameAverageLightLevel = sunshineHdrMetadata.maxFrameAverageLightLevel;
 
 		hdi->RequestSetCurrentDisplayModeAsync(requestedMode, HdmiDisplayHdrOption::Eotf2084, hdrMetadata);
-		
+
 		hr = m_deviceResources->GetSwapChain()->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(hdr10Metadata), &hdr10Metadata);
 		if (SUCCEEDED(hr)) {
 			Utils::Log("Set display HDR mode: enabled\n");

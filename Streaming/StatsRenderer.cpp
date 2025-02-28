@@ -55,8 +55,9 @@ void StatsRenderer::Update(DX::StepTimer const& timer)
 		m_text += L"Window Size: " + std::to_wstring(Utils::stats.outputW) + L" x " + std::to_wstring(Utils::stats.outputH) + L"\n";
 		m_text += L"Composition Scale: " + std::to_wstring(Utils::stats.compositionScaleX) + L" - " + std::to_wstring(Utils::stats.compositionScaleY) + L" - " + std::to_wstring(Utils::stats.compositionScaleMultiplier) + L"\n";
 		m_text += L"AVG FPS: " + std::to_wstring(Utils::stats.fps) + L"fps\n";
-		m_text += L"AVG Rendering Time: " + std::to_wstring(Utils::stats.averageRenderingTime) + L"ms \n";
 		m_text += L"AVG Network Time: " + std::to_wstring(Utils::stats.averageNetworkTime) + L"ms\n";
+		m_text += L"AVG Decode time: " + std::to_wstring(Utils::stats.averageDecodeTime) + L"ms \n";
+		m_text += L"AVG Rendering Time: " + std::to_wstring(Utils::stats.averageRenderingTime) + L"ms \n";
 		m_text += L"AVG Total Time: " + std::to_wstring(Utils::stats.averageTotalTime) + L"ms \n";
 		m_text += L"Queue Size: " + std::to_wstring(Utils::stats.queueSize) + L"\n";
 	}

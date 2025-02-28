@@ -18,8 +18,10 @@ namespace moonlight_xbox_dx {
 			float compositionScaleX = 0;
 			float compositionScaleY = 0;
 			float compositionScaleMultiplier = 0;
+			uint64_t totalDecodeMs = 0;
+			double averageDecodeTime = 0.0;
 		};
-		
+
 		extern std::vector<std::wstring> logLines;
 		extern bool showLogs;
 		extern bool showStats;
@@ -27,7 +29,7 @@ namespace moonlight_xbox_dx {
 		extern float outputH;
 		extern StreamingStats stats;
 		extern std::mutex logMutex;
-		
+
 		Platform::String^ StringPrintf(const char* fmt, ...);
 
 		void Log(const char* msg);
@@ -38,5 +40,6 @@ namespace moonlight_xbox_dx {
 		Platform::String^ StringFromStdString(std::string st);
 		std::string PlatformStringToStdString(Platform::String^ input);
 		std::string WideToNarrowString(const std::wstring_view& str);
-		std::wstring NarrowToWideString(const std::string_view& str);	}
+		std::wstring NarrowToWideString(const std::string_view& str);
+	}
 }
