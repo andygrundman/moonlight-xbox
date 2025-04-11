@@ -460,3 +460,9 @@ void moonlight_xbox_dxMain::SetShowLogs(bool showLogs) {
 void moonlight_xbox_dxMain::SetShowStats(bool showStats) {
 	m_statsTextRenderer->SetVisible(showStats);
 }
+
+void moonlight_xbox_dxMain::ToggleVsync() {
+	bool enableVsync = m_deviceResources->GetEnableVsync();
+	Utils::Logf("Changing vsync from %d to %d\n", enableVsync ? 1 : 0, enableVsync ? 0 : 1);
+	m_deviceResources->SetEnableVsync(!enableVsync);
+}

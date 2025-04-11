@@ -61,7 +61,8 @@ DX::DeviceResources::DeviceResources() :
 	m_d3dFeatureLevel(D3D_FEATURE_LEVEL_10_0),
 	m_d3dRenderTargetSize(),
 	m_dxgiFactoryFlags(0),
-	m_enableVsync(true),
+	//m_enableVsync(true),
+	m_enableVsync(false), // XXX testing VRR
 	m_swapchainVsync(true),
 	m_outputSize(),
 	m_logicalSize(),
@@ -242,7 +243,7 @@ void DX::DeviceResources::CreateWindowSizeDependentResources()
 			lround(m_d3dRenderTargetSize.Width),
 			lround(m_d3dRenderTargetSize.Height),
 			m_backBufferFormat,
-			(m_enableVsync) ? 0 : DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING
+			(m_enableVsync) ? 0u : DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING
 			);
 
 		Utils::Logf("ResizeBuffers() ALLOW_TEARING=%d\n", m_enableVsync ? 0 : 1);
@@ -276,7 +277,7 @@ void DX::DeviceResources::CreateWindowSizeDependentResources()
 		//Check moonlight-stream/moonlight-qt/app/streaming/video/ffmpeg-renderers/d3d11va.cpp for rationale
 		swapChainDesc.BufferCount = 5;
 		swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-		swapChainDesc.Flags = (m_enableVsync) ? 0 : DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+		swapChainDesc.Flags = (m_enableVsync) ? 0u : DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 		swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
 		swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
 
@@ -649,16 +650,32 @@ void DX::DeviceResources::GetDXGIFrameStatistics(std::shared_ptr<Stats>& dstStat
 // Present the contents of the swap chain to the screen.
 void DX::DeviceResources::Present()
 {
+	static int once1 = 0;
+	static int once2 = 0;
+
 	HRESULT hr = E_FAIL;
 	DXGI_PRESENT_PARAMETERS parameters = { 0 };
 	if (m_enableVsync) {
 		// This still seems to use vsync due to the lack of DXGI_PRESENT_ALLOW_TEARING
 		hr = m_swapChain->Present1(0, 0, &parameters);
+		if (++once1 < 3) {
+			Utils::Log("Present1() vsync: enabled\n");
+		}
+		once2 = 0;
 	}
 	else {
 		// Recommended to always use tearing if supported when using a sync interval of 0.
 		// This call requires VRR to be set to Always On on Xbox
 		hr = m_swapChain->Present1(0, DXGI_PRESENT_ALLOW_TEARING, &parameters);
+		if (hr == DXGI_ERROR_INVALID_CALL) {
+			Utils::Logf("Present1() vsync: disabled, DXGI_ERROR_INVALID_CALL\n");
+		}
+		else {
+			if (++once2 < 3) {
+				Utils::Logf("Present1() vsync: disabled\n");
+			}
+			once1 = 0;
+		}
 	}
 
 	// Discard the contents of the render target.

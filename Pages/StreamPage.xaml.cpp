@@ -17,6 +17,7 @@ using namespace Windows::Graphics::Display;
 using namespace Windows::System::Threading;
 using namespace Windows::UI::Core;
 using namespace Windows::UI::Input;
+using namespace Windows::UI::ViewManagement;
 using namespace Windows::UI::Xaml;
 using namespace Windows::UI::Xaml::Controls;
 using namespace Windows::UI::Xaml::Controls::Primitives;
@@ -63,7 +64,7 @@ void StreamPage::Page_Loaded(Platform::Object^ sender, Windows::UI::Xaml::Routed
 		Windows::UI::ViewManagement::ApplicationView::GetForCurrentView()->SetDesiredBoundsMode(Windows::UI::ViewManagement::ApplicationViewBoundsMode::UseCoreWindow);
 		keyDownHandler = (Windows::UI::Core::CoreWindow::GetForCurrentThread()->KeyDown += ref new Windows::Foundation::TypedEventHandler<Windows::UI::Core::CoreWindow^, Windows::UI::Core::KeyEventArgs^>(this, &StreamPage::OnKeyDown));
 		keyUpHandler = (Windows::UI::Core::CoreWindow::GetForCurrentThread()->KeyUp += ref new Windows::Foundation::TypedEventHandler<Windows::UI::Core::CoreWindow^, Windows::UI::Core::KeyEventArgs^>(this, &StreamPage::OnKeyUp));
-		// At this point we have access to the device. 
+		// At this point we have access to the device.
 		// We can create the device-dependent resources.
 		m_deviceResources->SetSwapChainPanel(swapChainPanel);
 		m_main = std::unique_ptr<moonlight_xbox_dxMain>(new moonlight_xbox_dxMain(m_deviceResources,this,new MoonlightClient(),configuration));
@@ -105,6 +106,7 @@ void StreamPage::Page_Loaded(Platform::Object^ sender, Windows::UI::Xaml::Routed
 void StreamPage::OnSwapChainPanelSizeChanged(Object^ sender, Windows::UI::Xaml::SizeChangedEventArgs^ e)
 {
 	if (m_main == nullptr || m_deviceResources == nullptr)return;
+	Utils::Logf("StreamPage::OnSwapChainPanelSizeChanged( NewSize: %f x %f )\n", e->NewSize.Width, e->NewSize.Height);
 	critical_section::scoped_lock lock(m_main->GetCriticalSection());
 	m_deviceResources->SetLogicalSize(e->NewSize);
 	m_main->CreateDeviceDependentResources();
@@ -225,9 +227,43 @@ void StreamPage::guideButtonLong_Click(Platform::Object^ sender, Windows::UI::Xa
 }
 
 
-void moonlight_xbox_dx::StreamPage::toggleHDR_WinAltB_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e)
+void StreamPage::toggleHDR_WinAltB_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e)
 {
 	this->m_main->SendWinAltB();
+}
+
+void StreamPage::toggleVsync_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e)
+{
+	this->m_main->ToggleVsync();
+}
+
+void StreamPage::toggleFullscreen_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e)
+{
+	// None of this does anything
+	auto view = ApplicationView::GetForCurrentView();
+	Utils::Logf("ApplicationView details:\n"
+		"AdjacentToLeftDisplayEdge: %d\n"
+		"AdjacentToRightDisplayEdge: %d\n"
+		"DesiredBoundsMode: %d\n"
+		"IsFullScreenMode: %d\n",
+		view->AdjacentToLeftDisplayEdge, view->AdjacentToRightDisplayEdge,
+		view->DesiredBoundsMode, view->IsFullScreenMode);
+
+	if (view->IsFullScreenMode) {
+		Utils::Log("Exiting fullscreen mode...\n");
+		view->ExitFullScreenMode();
+		ApplicationView::PreferredLaunchWindowingMode = ApplicationViewWindowingMode::Auto;
+	}
+	else {
+		if (view->TryEnterFullScreenMode()) {
+			Utils::Log("Trying to enter fullscreen mode...\n");
+			ApplicationView::PreferredLaunchWindowingMode = ApplicationViewWindowingMode::FullScreen;
+			// The SizeChanged event will be raised when the entry to full screen mode is complete.
+		}
+		else {
+			Utils::Log("Failed to enter fullscreen mode\n");
+		}
+	}
 }
 
 void StreamPage::OnLoaded(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e)

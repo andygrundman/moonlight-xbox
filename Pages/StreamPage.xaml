@@ -45,6 +45,16 @@
                                 <FontIcon Glyph="&#xe706;" />
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
+                        <MenuFlyoutItem x:Name="toggleVsync" Text="Toggle Vsync" Click="toggleVsync_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xe706;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem x:Name="toggleFullscreen" Text="Toggle Fullscreen" Click="toggleFullscreen_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xe706;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
                     </MenuFlyoutSubItem>
                     <MenuFlyoutSeparator></MenuFlyoutSeparator>
                     <MenuFlyoutItem x:Name="toggleLogsButton" Text="Show Logs" AllowFocusOnInteraction="false" Click="toggleLogsButton_Click"  FocusVisualSecondaryThickness="0.5" >

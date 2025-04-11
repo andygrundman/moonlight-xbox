@@ -34,6 +34,7 @@ namespace moonlight_xbox_dx
 		void SendWinAltB();
 		void SetShowLogs(bool showLogs);
 		void SetShowStats(bool showStats);
+		void ToggleVsync();
 	private:
 		void ProcessInput();
 		void Update();

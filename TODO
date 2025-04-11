@@ -11,3 +11,6 @@ Look into GetFrameStatistics() and frame pacing techniques
     See SubmitDXGIFrameStatistics() for more links
 
 When changing the Windows HDR calibration profile on the host, it causes the stream to reset and often switch to the wrong colorspace.
+
+If we want to use ImGui: https://github.com/ahmed605/imgui-uwp
+

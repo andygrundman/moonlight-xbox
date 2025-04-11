@@ -46,7 +46,7 @@ namespace moonlight_xbox_dx
 	{
 	public:
 		Stats();
-		bool ShouldUpdateDisplay(DX::StepTimer const& timer, bool isVisible, char* output, size_t length);
+		bool ShouldUpdateDisplay(DX::StepTimer const& timer, bool isVisible, bool vsyncEnabled, char* output, size_t length);
 
 		// submitters for various types of data
 		void SubmitVideoBytesAndReassemblyTime(uint32_t length, uint32_t reassemblyMs, uint16_t frameHPL, uint32_t droppedFrames);
@@ -58,7 +58,7 @@ namespace moonlight_xbox_dx
 
 	private:
 		void addVideoStats(DX::StepTimer const& timer, VIDEO_STATS& src, VIDEO_STATS& dst);
-		void formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, char* output, size_t length);
+		void formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, bool vsyncEnabled, char* output, size_t length);
 
 		std::mutex                           m_mutex;
 

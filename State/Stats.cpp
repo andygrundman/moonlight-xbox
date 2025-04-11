@@ -25,7 +25,7 @@ Stats::Stats()
 	ZeroMemory(&m_GlobalVideoStats, sizeof(VIDEO_STATS));
 }
 
-bool Stats::ShouldUpdateDisplay(DX::StepTimer const& timer, bool isVisible, char* output, size_t length)
+bool Stats::ShouldUpdateDisplay(DX::StepTimer const& timer, bool isVisible, bool vsyncEnabled, char* output, size_t length)
 {
 	bool shouldUpdate = false;
 
@@ -39,7 +39,7 @@ bool Stats::ShouldUpdateDisplay(DX::StepTimer const& timer, bool isVisible, char
 			addVideoStats(timer, m_LastWndVideoStats, lastTwoWndStats);
 			addVideoStats(timer, m_ActiveWndVideoStats, lastTwoWndStats);
 
-			formatVideoStats(timer, lastTwoWndStats, output, length);
+			formatVideoStats(timer, lastTwoWndStats, vsyncEnabled, output, length);
 			shouldUpdate = true;
 		}
 
@@ -197,7 +197,8 @@ void Stats::addVideoStats(DX::StepTimer const& timer, VIDEO_STATS& src, VIDEO_ST
 	dst.renderedFps = (double)dst.renderedFrames / (now - dst.measurementStartTimestamp);
 }
 
-void Stats::formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, char* output, size_t length) {
+// XXX eventually find a nicer way to pass vsync state here
+void Stats::formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, bool vsyncEnabled, char* output, size_t length) {
 	FFMpegDecoder* ffmpeg = FFMpegDecoder::getInstance();
 	int offset = 0;
 	const char* codecString;
@@ -343,12 +344,13 @@ void Stats::formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, cha
 					   "Frames dropped by your network connection: %.2f%%\n"
 					   "Average network latency: %s\n"
 					   "Average reassembly/decoding time: %.2f/%.2f ms\n"
-					   "Average frametime: %.2f ms\n",
+					   "Average frametime: %.2f ms, vsync: %d\n",
 					   (double)stats.networkDroppedFrames / stats.totalFrames * 100,
 					   rttString,
 					   (double)stats.totalReassemblyTime / stats.decodedFrames,
 					   (double)stats.totalDecodeTime / stats.decodedFrames,
-					   (double)stats.totalRenderTimeUs / 1000.0 / stats.renderedFrames);
+					   (double)stats.totalRenderTimeUs / 1000.0 / stats.renderedFrames,
+					   vsyncEnabled ? 1 : 0);
 		if (ret < 0 || ret >= length - offset) {
 			Utils::Log("Error: stringifyVideoStats length overflow\n");
 			return;

@@ -31,7 +31,8 @@ namespace DX
 		static int uwp_get_width();
 		static int uwp_get_height();
 
-		void                       SetEnableVsync(bool ev)                  { m_enableVsync = ev; }
+		bool                        GetEnableVsync() const                  { return m_enableVsync; }
+		void                        SetEnableVsync(bool ev)                 { m_enableVsync = ev; }
 
 		// Stats helpers
 		void                        SetStats(const std::shared_ptr<moonlight_xbox_dx::Stats>& stats)  { m_stats = stats; }

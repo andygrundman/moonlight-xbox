@@ -29,7 +29,7 @@ void StatsRenderer::Update(DX::StepTimer const& timer)
 	char outputStr[1024]; // char is used so we can share more of the formatting code with moonlight-qt
 	wchar_t wideStr[2048];
 
-	if (m_stats->ShouldUpdateDisplay(timer, m_visible, outputStr, sizeof(outputStr))) {
+	if (m_stats->ShouldUpdateDisplay(timer, m_visible, m_deviceResources->GetEnableVsync(), outputStr, sizeof(outputStr))) {
 		size_t numChars = mbstowcs(wideStr, outputStr, 1024);
 		if (numChars != -1) {
 			m_console->Clear();
