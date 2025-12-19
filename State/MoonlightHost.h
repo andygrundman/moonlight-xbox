@@ -25,7 +25,7 @@ namespace moonlight_xbox_dx {
         int autostartID = -1;
         Platform::String^ videoCodec = "H.265";
         Platform::String^ audioConfig = "Stereo";
-        Platform::String^ framePacing = "Immediate";
+        Platform::String^ framePacing = "";
         bool enableHDR = false;
         bool enableSOPS = false;
         bool enableStats = false;
@@ -35,11 +35,8 @@ namespace moonlight_xbox_dx {
         //Thanks to https://phsucharee.wordpress.com/2013/06/19/data-binding-and-ccx-inotifypropertychanged/
         virtual event Windows::UI::Xaml::Data::PropertyChangedEventHandler^ PropertyChanged;
         void OnPropertyChanged(Platform::String^ propertyName);
-        MoonlightHost(Platform::String ^host) {
-            lastHostname = host;
-            resolution = ref new ScreenResolution(1920, 1080);
-            loading = true;
-        }
+        MoonlightHost(Platform::String ^host);
+
         void UpdateHostInfo();
         int Connect();
         void Unpair();
