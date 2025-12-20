@@ -23,6 +23,7 @@ namespace moonlight_xbox_dx {
 		int StartStreaming(std::shared_ptr<DX::DeviceResources> res, StreamConfiguration ^config);
 		int Connect(const char* hostname);
 		bool IsConnectionTerminated();
+		void SetConnectionTerminated();
 		bool IsHDR();
 		bool IsPaired();
 		bool IsRGBFull();
