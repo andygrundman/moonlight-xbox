@@ -8,7 +8,8 @@ using namespace moonlight_xbox_dx;
 
 Stats::Stats() :
 	m_avgQueueSize(0.0),
-	m_avgMbpsSmoothed(0.0)
+	m_avgMbpsSmoothed(0.0),
+	m_avgTotalClientLatency(0.0)
 {
 	ZeroMemory(&m_ActiveWndVideoStats, sizeof(VIDEO_STATS));
 	ZeroMemory(&m_LastWndVideoStats, sizeof(VIDEO_STATS));
@@ -141,6 +142,13 @@ void Stats::SubmitRenderStats(int64_t preWaitTimeUs, int64_t renderTimeUs, int64
 	// Only shown in debug builds
 	m_ActiveWndVideoStats.totalPreWaitTimeUs += preWaitTimeUs;
 	m_ActiveWndVideoStats.totalPresentTimeUs += presentTimeUs;
+}
+
+void Stats::SubmitClientLatency(double clientLatencyMs, double varianceMs) {
+	std::lock_guard<std::mutex> lock(m_mutex);
+	const float alpha = 0.1f;
+	m_avgTotalClientLatency = (1 - alpha) * m_avgTotalClientLatency + alpha * clientLatencyMs;
+	m_avgTotalClientLatencyVariance = varianceMs;
 }
 
 /// private methods

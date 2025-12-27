@@ -6,6 +6,7 @@
 #include <thread>
 #include <utility>
 #include "FrameCadence.h"
+#include "PresentQueueStats.hpp"
 #include "Utils.hpp"
 #include "VideoRenderer.h"
 
@@ -23,6 +24,7 @@ class Pacer {
 	void waitForFrame(double timeoutMs);
 	bool renderOnMainThread(std::shared_ptr<moonlight_xbox_dx::VideoRenderer> &sceneRenderer);
 	void waitBeforePresent(int64_t deadline);
+	void postPresent();
 	int64_t getCurrentFramePts();
 	int64_t getNextVBlankQpc(int64_t *now);
 	void submitFrame(AVFrame *frame);
@@ -43,7 +45,8 @@ class Pacer {
 	bool renderModeImmediate(std::shared_ptr<moonlight_xbox_dx::VideoRenderer> &sceneRenderer);
 	bool renderModeDisplayLocked(std::shared_ptr<moonlight_xbox_dx::VideoRenderer> &sceneRenderer);
 	void vsyncHardware();
-	void updateFrameStats();
+	void updateVsyncTiming();
+	void updateLatencyStats();
 
 	std::shared_ptr<DX::DeviceResources> m_DeviceResources;
 	std::thread m_VsyncThread;
@@ -67,4 +70,7 @@ class Pacer {
 	int64_t m_vhsum = 0;
 	std::atomic<int64_t> m_LastSyncTarget{0};
 	double m_ewmaVsyncDriftQpc = 1;
+
+	PresentQueueStats m_PQS;
+	LatencyStatistics m_LatencyStats;
 };

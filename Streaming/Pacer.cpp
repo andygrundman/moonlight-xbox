@@ -53,6 +53,7 @@ Pacer::Pacer()
       m_LastSyncRefreshCount(0),
       m_LastSyncQpc(0),
       m_VsyncIntervalQpc(0) {
+	m_LatencyStats.SetHistoryLength(256);
 }
 
 void Pacer::deinit() {
@@ -118,20 +119,23 @@ void Pacer::vsyncHardware() {
 		// tracks. This data is several frames out of date but it's enough to
 		// very precisely time present calls and to determine the vsync interval.
 		m_DeviceResources->GetDXGIOutput()->WaitForVBlank();
-		updateFrameStats();
+
+		// TODO: these make redundant calls to GetFrameStatistics, optimize this later
+		updateVsyncTiming();
+		updateLatencyStats();
 	}
 
 	Utils::Logf("vsyncHardware stats thread stopped\n");
 }
 
 // based on mpv's d3d11_get_vsync()
-void Pacer::updateFrameStats() {
+void Pacer::updateVsyncTiming() {
 	std::scoped_lock<std::mutex> lock(m_FrameStatsLock);
 
 	// After we've presented a couple of frames, we can obtain the true vsync interval
 	DXGI_FRAME_STATISTICS stats;
 	if (m_DeviceResources->GetSwapChain()->GetFrameStatistics(&stats) == S_OK &&
-	    (stats.SyncRefreshCount != 0 || stats.SyncQPCTime.QuadPart != 0ULL)) {
+		(stats.SyncRefreshCount != 0 || stats.SyncQPCTime.QuadPart != 0ULL)) {
 		UINT srcPassed = 0;
 		if (stats.SyncRefreshCount && m_LastSyncRefreshCount) {
 			srcPassed = stats.SyncRefreshCount - m_LastSyncRefreshCount;
@@ -199,6 +203,27 @@ void Pacer::updateFrameStats() {
 
 		LogOnce("vsyncHardware(): starting up with interval %.2f based on system rate %.2f\n", vsyncRR, m_RefreshRate);
 	}
+}
+
+void Pacer::updateLatencyStats() {
+	std::scoped_lock<std::mutex> lock(m_FrameStatsLock);
+
+	auto dequeue_entry = [this](PresentQueueStats::QueueEntry &e) {
+		// auto *Data = (MyData *)e.UserData;
+		if (!e.Dropped) {
+			// FrameBeginTime is first packet receiveTime, so this is roughly the first-packet-to-photon latency
+			double clientLatency = 1000 * double(e.QueueExitedTime - e.FrameBeginTime) / QpcFreq();
+			m_LatencyStats.Sample(clientLatency);
+
+			double stddev = m_LatencyStats.EvaluateStdDevMetric();
+			m_DeviceResources->GetStats()->SubmitClientLatency(clientLatency, stddev);
+
+			FQLog("[PresentQueueStats] Frame %d ttPresent %.3fms, ttPhoton %.3fms\n",
+			            e.PresentID, QpcToMs(e.QueueEnteredTime - e.FrameBeginTime), QpcToMs(e.QueueExitedTime - e.FrameBeginTime));
+		}
+	};
+
+	m_PQS.RetrieveStats(m_DeviceResources->GetSwapChain(), dequeue_entry);
 }
 
 // Main render thread
@@ -341,6 +366,21 @@ void Pacer::waitBeforePresent(int64_t target) {
 		FQLog("waitBeforePresent(): waiting %.3fms\n", QpcToMs(target - now));
 		SleepUntilQpc(target);
 	}
+}
+
+void Pacer::postPresent() {
+	std::scoped_lock<std::mutex> lock(m_FrameStatsLock);
+
+	// Track the earliest timestamp we can associate with this frame, the first data packet receive time
+	int64_t receiveTimeQpc = 0;
+	if (m_CurrentFrame->opaque_ref) {
+		// XXX this should be cleaned up, for now it's just a proof of concept.
+		uint64_t nowUs = LiGetMicroseconds();
+		auto *data = reinterpret_cast<MLFrameData *>(m_CurrentFrame->opaque_ref->data);
+		receiveTimeQpc = QpcNow() - UsToQpc(nowUs - data->receiveTimeUs);
+	}
+
+	m_PQS.PostPresent(m_DeviceResources->GetSwapChain(), 0, (uint64_t)receiveTimeQpc, NULL);
 }
 
 // called by render thread

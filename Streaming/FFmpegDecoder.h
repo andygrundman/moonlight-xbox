@@ -18,9 +18,8 @@ extern "C" {
 #define MAX_BUFFER 1024 * 1024
 
 typedef struct MLFrameData {
+	int64_t receiveTimeUs;    // when we received the first packet containing this frame
 	int64_t decodeEndQpc;     // when we finished decoding
-	int64_t presentTargetQpc; // timestamp when frame should be presented (slightly earlier than vsync)
-	int64_t presentVsyncQpc;  // hard vsync deadline
 } MLFrameData;
 
 namespace moonlight_xbox_dx {

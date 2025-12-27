@@ -162,6 +162,9 @@ void moonlight_xbox_dxMain::StartRenderLoop()
 					}
 					lastPresentTime = t3;
 					lastFramePts = currentFramePts;
+
+					// Collect DXGI latency stats via PresentQueueStats, also only for new frames
+					Pacer::instance().postPresent();
 				}
 
 				// Weighted avg of time spent in Render(), more weight given to a slower render time

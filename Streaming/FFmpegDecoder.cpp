@@ -188,7 +188,7 @@ namespace moonlight_xbox_dx {
 		Utils::Log("FFMpegDecoder::Cleanup\n");
 	}
 
-    static inline int frame_attach_userdata(AVFrame *frame, int64_t decodeEndQpc) {
+    static inline int frame_attach_userdata(AVFrame *frame, uint64_t receiveTimeUs, int64_t decodeEndQpc) {
 	    if (!frame) return AVERROR(EINVAL);
 
 	    if (frame->opaque_ref) {
@@ -199,6 +199,7 @@ namespace moonlight_xbox_dx {
 	    if (!buf) return AVERROR(ENOMEM);
 
 	    MLFrameData *data = (MLFrameData *)buf->data;
+		data->receiveTimeUs = receiveTimeUs;
 	    data->decodeEndQpc = decodeEndQpc;
 	    frame->opaque_ref = buf;
 
@@ -269,7 +270,7 @@ namespace moonlight_xbox_dx {
 
 			// Capture a frame timestamp to measuring pacing delay
 			QueryPerformanceCounter(&decodeEnd);
-			frame_attach_userdata(frame, decodeEnd.QuadPart);
+			frame_attach_userdata(frame, decodeUnit->receiveTimeUs, decodeEnd.QuadPart);
 
 			FQLog("✓ Frame decoded [pts: %.3fms] [in#: %d] [out#: %d] [lost: %d] decode time %.3fms\n",
 				frame->pts / 90.0,
