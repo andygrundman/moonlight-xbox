@@ -8,8 +8,7 @@
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     mc:Ignorable="d"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
-    Loaded="Page_Loaded"
-    Unloaded="Page_Unloaded">
+    Loaded="Page_Loaded">
 
     <SwapChainPanel x:Name="swapChainPanel" Margin="{x:Bind State.ScreenMargin}">
         <StackPanel x:Name="ProgressView" HorizontalAlignment="Center" VerticalAlignment="Center"  Orientation="Vertical">
