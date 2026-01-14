@@ -68,7 +68,7 @@ bool moonlight_xbox_dx::ApplicationState::AddHost(Platform::String^ hostname) {
 			return true;
 		}
 	}
-	Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow->Dispatcher->RunAsync(Windows::UI::Core::CoreDispatcherPriority::High, ref new Windows::UI::Core::DispatchedHandler([this,host]() {
+	Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow->Dispatcher->RunAsync(Windows::UI::Core::CoreDispatcherPriority::Normal, ref new Windows::UI::Core::DispatchedHandler([this,host]() {
 		SavedHosts->Append(host);
 	}));
 	UpdateFile();
@@ -139,7 +139,7 @@ void moonlight_xbox_dx::ApplicationState::RemoveHost(MoonlightHost^ host) {
 
 void moonlight_xbox_dx::ApplicationState::OnPropertyChanged(Platform::String^ propertyName)
 {
-	Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow->Dispatcher->RunAsync(Windows::UI::Core::CoreDispatcherPriority::High, ref new Windows::UI::Core::DispatchedHandler([this,propertyName]() {
+	Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow->Dispatcher->RunAsync(Windows::UI::Core::CoreDispatcherPriority::Normal, ref new Windows::UI::Core::DispatchedHandler([this,propertyName]() {
 		PropertyChanged(this, ref new  Windows::UI::Xaml::Data::PropertyChangedEventArgs(propertyName));
 	}));
 }

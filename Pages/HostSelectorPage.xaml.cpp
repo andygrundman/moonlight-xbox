@@ -62,7 +62,7 @@ void HostSelectorPage::OnNewHostDialogPrimaryClick(Windows::UI::Xaml::Controls::
 		bool status = state->AddHost(hostname);
 		if (!status) {
 			Platform::WeakReference weakThis(this);
-			concurrency::create_task(Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow->Dispatcher->RunAsync(Windows::UI::Core::CoreDispatcherPriority::High, ref new Windows::UI::Core::DispatchedHandler([sender, weakThis, hostname, def, args]() {
+			concurrency::create_task(Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow->Dispatcher->RunAsync(Windows::UI::Core::CoreDispatcherPriority::Normal, ref new Windows::UI::Core::DispatchedHandler([sender, weakThis, hostname, def, args]() {
 				args->Cancel = true;
 				sender->Content = L"Failed to Connect to " + hostname;
 				def->Complete();
@@ -79,7 +79,7 @@ void HostSelectorPage::OnNewHostDialogPrimaryClick(Windows::UI::Xaml::Controls::
 				});
 			return;
 		}
-		Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow->Dispatcher->RunAsync(Windows::UI::Core::CoreDispatcherPriority::High, ref new Windows::UI::Core::DispatchedHandler([def]() {
+		Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow->Dispatcher->RunAsync(Windows::UI::Core::CoreDispatcherPriority::Normal, ref new Windows::UI::Core::DispatchedHandler([def]() {
 			def->Complete();
 			}));
 		});
@@ -155,7 +155,7 @@ void HostSelectorPage::StartPairing(MoonlightHost^ host) {
 	concurrency::create_task(::moonlight_xbox_dx::ModalDialog::ShowOnceAsync(dialog));
 	Concurrency::create_task([dialog, host, client, pin]() {
 			int a = client->Pair();
-		Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow->Dispatcher->RunAsync(Windows::UI::Core::CoreDispatcherPriority::High, ref new Windows::UI::Core::DispatchedHandler([a, dialog, host]()
+		Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow->Dispatcher->RunAsync(Windows::UI::Core::CoreDispatcherPriority::Normal, ref new Windows::UI::Core::DispatchedHandler([a, dialog, host]()
 			{
 				if (a == 0) {
 						::moonlight_xbox_dx::ModalDialog::HideDialog(dialog);
@@ -230,7 +230,7 @@ void HostSelectorPage::OnStateLoaded() {
 				if (host->InstanceId->Equals(pii)) {
 					auto that = this;
 					Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow->Dispatcher->RunAsync(
-						Windows::UI::Core::CoreDispatcherPriority::High,
+						Windows::UI::Core::CoreDispatcherPriority::Normal,
 						ref new Windows::UI::Core::DispatchedHandler([that, host]() {
 							that->Connect(host);
 						})
@@ -482,7 +482,7 @@ void HostSelectorPage::testConnectionButton_Click(Platform::Object^ sender, Wind
             WSACleanup();
         }
 
-        Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow->Dispatcher->RunAsync(Windows::UI::Core::CoreDispatcherPriority::High, ref new Windows::UI::Core::DispatchedHandler([resultMsg, hostOnly]() {
+        Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow->Dispatcher->RunAsync(Windows::UI::Core::CoreDispatcherPriority::Normal, ref new Windows::UI::Core::DispatchedHandler([resultMsg, hostOnly]() {
             auto dialog = ref new Windows::UI::Xaml::Controls::ContentDialog();
             dialog->Title = Utils::StringFromStdString("Test Connection");
             dialog->Content = Utils::StringFromStdString(hostOnly + ": " + resultMsg);

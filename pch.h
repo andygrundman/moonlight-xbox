@@ -39,7 +39,7 @@
 	Windows::ApplicationModel::Core::CoreApplication::MainView->CoreWindow   \
 		->Dispatcher                                                         \
 		->RunAsync(                                                          \
-			Windows::UI::Core::CoreDispatcherPriority::High,                 \
+			Windows::UI::Core::CoreDispatcherPriority::Normal,                 \
 			ref new Windows::UI::Core::DispatchedHandler(CAPTURE CODE)       \
 		)
 
