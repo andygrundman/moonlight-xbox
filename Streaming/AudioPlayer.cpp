@@ -6,8 +6,7 @@
 #if defined(_DEBUG)
 #define MA_DEBUG_OUTPUT
 #endif
-#define MINIAUDIO_IMPLEMENTATION
-#include "third_party/miniaudio.h"
+#include "third_party/miniaudio/miniaudio.h"
 
 static void AudioPlayer_LogCallback(void* pUserData, ma_uint32 level, const char* pMessage)
 {
@@ -69,7 +68,8 @@ namespace moonlight_xbox_dx {
 			return;
 		}
 		if (len > 0) {
-			memcpy(pOutput, buffer, len * ma_pcm_rb_get_bpf(&rb));
+			ma_uint32 bpf = ma_get_bytes_per_sample(rb.format) * rb.channels;
+			memcpy(pOutput, buffer, len * bpf);
 			res = ma_pcm_rb_commit_read(&rb, len);
 			if (res != MA_SUCCESS && res != MA_AT_END) {
 				Utils::Log("Failed to read audio data to shared buffer\n");

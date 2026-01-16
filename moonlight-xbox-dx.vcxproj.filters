@@ -31,6 +31,9 @@
     <Filter Include="ImGui">
       <UniqueIdentifier>{c5fa3ea7-182b-41f7-91ef-1c48589370b7}</UniqueIdentifier>
     </Filter>
+    <Filter Include="miniaudio">
+      <UniqueIdentifier>{c1177562-2e19-4798-a76d-245e13ccf782}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml" />
@@ -380,6 +383,9 @@
     </ClCompile>
     <ClCompile Include="Streaming\FrameCadence.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="third_party\miniaudio\miniaudio.c">
+      <Filter>miniaudio</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
