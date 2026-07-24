@@ -26,6 +26,7 @@ typedef struct _VIDEO_STATS {
 	uint32_t totalFrames;
 	uint32_t networkDroppedFrames;
 	uint32_t pacerDroppedFrames;
+	uint32_t partialFrames;      // truncated frames rendered instead of dropped (PyroWave only)
 	uint32_t hitDeadlines;
 	uint32_t missedDeadlines;
 	uint16_t minHostProcessingLatency;
@@ -34,6 +35,8 @@ typedef struct _VIDEO_STATS {
 	uint32_t framesWithHostProcessingLatency;
 	uint32_t totalReassemblyTimeUs;
 	double totalDecodeTime;
+	double totalGpuDecodeTime;   // measured GPU time (PyroWave only)
+	uint32_t gpuTimedFrames;     // frames contributing to totalGpuDecodeTime
 	uint64_t totalPacerTimeUs;
 	uint64_t totalPreWaitTimeUs;
 	uint64_t totalRenderTimeUs;
@@ -59,6 +62,7 @@ namespace moonlight_xbox_dx
 		// submitters for various types of data
 		void SubmitVideoBytesAndReassemblyTime(uint32_t length, PDECODE_UNIT decodeUnit, uint32_t droppedFrames);
 		void SubmitDecodeMs(double decodeMs);
+		void SubmitGpuDecodeMs(double gpuMs);
 		void SubmitDroppedFrame(int count);
 		void SubmitAvgQueueSize(float avgQueueSize);
 		void SubmitPacerTime(int64_t pacerTimeQpc);

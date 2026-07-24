@@ -3,6 +3,7 @@
 #include "Utils.hpp"
 #include "../Plot/ImGuiPlots.h"
 #include "../Streaming/FFMpegDecoder.h"
+#include "../Streaming/PyroWaveDecoder.h"
 
 using namespace moonlight_xbox_dx;
 
@@ -75,6 +76,10 @@ void Stats::SubmitVideoBytesAndReassemblyTime(uint32_t length, PDECODE_UNIT deco
 	uint32_t reassemblyUs = (uint32_t)(decodeUnit->enqueueTimeUs - decodeUnit->receiveTimeUs);
 	m_ActiveWndVideoStats.totalReassemblyTimeUs += reassemblyUs;
 
+	if (decodeUnit->isPartial) {
+		m_ActiveWndVideoStats.partialFrames++;
+	}
+
 	// Host processing latency
 	uint16_t frameHPL = decodeUnit->frameHostProcessingLatency;
 	if (frameHPL != 0) {
@@ -104,11 +109,22 @@ void Stats::SubmitVideoBytesAndReassemblyTime(uint32_t length, PDECODE_UNIT deco
 	lastHostPts = (uint32_t)decodeUnit->rtpTimestamp;
 }
 
-// Time in milliseconds we spent decoding one frame, it is added up to later be divided by decodedFrames
+// Time in milliseconds we spent decoding one frame, it is added up to later be divided by decodedFrames.
+// For GPU decoders (PyroWave) this is CPU submit time; see SubmitGpuDecodeMs for the GPU side.
 void Stats::SubmitDecodeMs(double decodeMs) {
 	std::lock_guard<std::mutex> lock(m_mutex);
 	m_ActiveWndVideoStats.totalDecodeTime += decodeMs;
 	m_ActiveWndVideoStats.decodedFrames++;
+}
+
+// Measured GPU execution time of one frame's decode (timestamp queries,
+// PyroWave only — the ffmpeg/VCN path has no publicly measurable GPU time).
+// Results arrive a few frames late and some frames are skipped; that's fine
+// for an average.
+void Stats::SubmitGpuDecodeMs(double gpuMs) {
+	std::lock_guard<std::mutex> lock(m_mutex);
+	m_ActiveWndVideoStats.totalGpuDecodeTime += gpuMs;
+	m_ActiveWndVideoStats.gpuTimedFrames++;
 }
 
 void Stats::SubmitDroppedFrame(int count) {
@@ -167,11 +183,14 @@ void Stats::addVideoStats(DX::StepTimer const& timer, VIDEO_STATS& src, VIDEO_ST
 	dst.renderedFrames += src.renderedFrames;
 	dst.totalFrames += src.totalFrames;
 	dst.networkDroppedFrames += src.networkDroppedFrames;
+	dst.partialFrames += src.partialFrames;
 	dst.pacerDroppedFrames += src.pacerDroppedFrames;
 	dst.hitDeadlines += src.hitDeadlines;
 	dst.missedDeadlines += src.missedDeadlines;
 	dst.totalReassemblyTimeUs += src.totalReassemblyTimeUs;
 	dst.totalDecodeTime += src.totalDecodeTime;
+	dst.totalGpuDecodeTime += src.totalGpuDecodeTime;
+	dst.gpuTimedFrames += src.gpuTimedFrames;
 	dst.totalPacerTimeUs += src.totalPacerTimeUs;
 	dst.totalRenderTimeUs += src.totalRenderTimeUs;
 	dst.totalPreWaitTimeUs += src.totalPreWaitTimeUs;
@@ -216,6 +235,11 @@ void Stats::addVideoStats(DX::StepTimer const& timer, VIDEO_STATS& src, VIDEO_ST
 
 void Stats::formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, char* output, size_t length) {
 	FFMpegDecoder& ffmpeg = FFMpegDecoder::instance();
+	PyroWaveDecoder& pyrowave = PyroWaveDecoder::instance();
+
+	int videoFormat = pyrowave.IsActive() ? pyrowave.videoFormat : ffmpeg.videoFormat;
+	int videoWidth = pyrowave.IsActive() ? pyrowave.width : ffmpeg.width;
+	int videoHeight = pyrowave.IsActive() ? pyrowave.height : ffmpeg.height;
 
 	int offset = 0;
 	const char* codecString;
@@ -224,7 +248,7 @@ void Stats::formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, cha
 	// Start with an empty string
 	output[offset] = 0;
 
-	switch (ffmpeg.videoFormat)
+	switch (videoFormat)
 	{
 	case VIDEO_FORMAT_H264:
 		codecString = "H.264";
@@ -286,6 +310,32 @@ void Stats::formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, cha
 		}
 		break;
 
+	case VIDEO_FORMAT_PYROWAVE:
+		codecString = "PyroWave";
+		break;
+
+	case VIDEO_FORMAT_PYROWAVE_444:
+		codecString = "PyroWave 4:4:4";
+		break;
+
+	case VIDEO_FORMAT_PYROWAVE10_420:
+		if (LiGetCurrentHostDisplayHdrMode()) {
+			codecString = "PyroWave 10-bit HDR";
+		}
+		else {
+			codecString = "PyroWave 10-bit SDR";
+		}
+		break;
+
+	case VIDEO_FORMAT_PYROWAVE10_444:
+		if (LiGetCurrentHostDisplayHdrMode()) {
+			codecString = "PyroWave 10-bit HDR 4:4:4";
+		}
+		else {
+			codecString = "PyroWave 10-bit SDR 4:4:4";
+		}
+		break;
+
 	default:
 		codecString = "UNKNOWN";
 		break;
@@ -295,8 +345,8 @@ void Stats::formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, cha
 		ret = snprintf(&output[offset],
 						length - offset,
 						"Video stream: %dx%d %.2f FPS (%s)\n",
-						ffmpeg.width,
-						ffmpeg.height,
+						videoWidth,
+						videoHeight,
 						stats.totalFps,
 						codecString);
 		if (ret < 0 || (size_t)ret >= (length - offset)) {
@@ -367,19 +417,46 @@ void Stats::formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, cha
 			snprintf(rttString, sizeof(rttString), "N/A");
 		}
 
+		// GPU decode time is only measurable for PyroWave (timestamp
+		// queries); the ffmpeg/VCN hardware path shows n/a. The "cpu"
+		// number on both paths is parse+submit time, not decoder cost.
+		char gpuString[16];
+		if (stats.gpuTimedFrames > 0) {
+			snprintf(gpuString, sizeof(gpuString), "%.2f",
+			         stats.totalGpuDecodeTime / stats.gpuTimedFrames);
+		}
+		else {
+			snprintf(gpuString, sizeof(gpuString), "n/a");
+		}
+
+		// Partial frames are truncated frames we rendered instead of dropping,
+		// so they're a saved drop rather than a defect. Hidden entirely on
+		// codecs that can't produce them.
+		char partialString[48];
+		if (stats.partialFrames > 0 && stats.totalFrames > 0) {
+			snprintf(partialString, sizeof(partialString), "Frames rendered partially: %.2f%%\n",
+			         (double)stats.partialFrames / stats.totalFrames * 100);
+		}
+		else {
+			partialString[0] = '\0';
+		}
+
 		ret = snprintf(&output[offset],
 					   length - offset,
+					   "%s"
 					   "Frames dropped by your network connection: %.2f%%\n"
 					   "Frames dropped due to network jitter: %.2f%%\n"
 					   "Average network latency: %s\n"
-					   "Average reassembly/decoding time: %.2f/%.2f ms\n"
+					   "Average reassembly/cpu/gpu time: %.2f/%.2f/%s ms\n"
 					   "Average frames in queue: %.1f\n"
 					   "Average frame queue/render/present: %.2f/%.2f/%.2f ms\n",
+					   partialString,
 					   stats.totalFrames ? (double)stats.networkDroppedFrames / stats.totalFrames * 100 : 0.0f,
 					   stats.totalFrames ? (double)stats.pacerDroppedFrames / stats.totalFrames * 100 : 0.0f,
 					   rttString,
 					   stats.decodedFrames ? (double)stats.totalReassemblyTimeUs / 1000.0 / stats.decodedFrames : 0.0f,
 					   stats.decodedFrames ? (double)stats.totalDecodeTime / stats.decodedFrames : 0.0f,
+					   gpuString,
 					   m_avgQueueSize,
 					   stats.renderedFrames ? (double)stats.totalPacerTimeUs / 1000.0 / stats.renderedFrames : 0.0f,
 					   stats.renderedFrames ? (double)stats.totalRenderTimeUs / 1000.0 / stats.renderedFrames : 0.0f,

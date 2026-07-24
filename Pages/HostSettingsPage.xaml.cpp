@@ -8,7 +8,11 @@
 #include "MoonlightSettings.xaml.h"
 #include "Utils.hpp"
 #include <gamingdeviceinformation.h>
+extern "C" {
+#include <Limelight.h> // SCM_* server codec support bits
+}
 #include <cmath> // sqrtf, lround
+#include <algorithm> // std::min
 using namespace Windows::UI::Core;
 
 using namespace moonlight_xbox_dx;
@@ -53,6 +57,31 @@ void HostSettingsPage::OnNavigatedTo(Windows::UI::Xaml::Navigation::NavigationEv
 	AvailableFPS->Append(120);
 	AvailableVideoCodecs->Append("H.264");
 	AvailableVideoCodecs->Append("HEVC (H.265)");
+	// PyroWave options only appear when the server advertised support in
+	// its last serverinfo response (Sunshine PyroWave fork) AND this console
+	// can decode it. The Xbox One generation cannot: UWP there never exposes
+	// compute shaders (feature level 10 even as Game type), so on those
+	// consoles PyroWave simply doesn't exist as far as the UI is concerned.
+	if (!IsXboxOne() && (host->ServerCodecModeSupport & SCM_PYROWAVE)) {
+		AvailableVideoCodecs->Append("PyroWave 4:2:0");
+		if (host->ServerCodecModeSupport & SCM_PYROWAVE_444) {
+			AvailableVideoCodecs->Append("PyroWave 4:4:4");
+		}
+	}
+	// If the saved codec is no longer offered (e.g. PyroWave selected but
+	// the server lost support), fall back so the ComboBox isn't blank.
+	{
+		bool codecAvailable = false;
+		for (unsigned int i = 0; i < AvailableVideoCodecs->Size; i++) {
+			if (AvailableVideoCodecs->GetAt(i) == host->VideoCodec) {
+				codecAvailable = true;
+				break;
+			}
+		}
+		if (!codecAvailable) {
+			host->VideoCodec = "HEVC (H.265)";
+		}
+	}
 	AvailableAudioConfigs->Append("Stereo");
 	AvailableAudioConfigs->Append("Surround 5.1");
 	AvailableAudioConfigs->Append("Surround 7.1");
@@ -97,7 +126,8 @@ void HostSettingsPage::OnNavigatedTo(Windows::UI::Xaml::Navigation::NavigationEv
 		}
 
 		// Disable HDR if console is not set to 4K
-		auto mode = HdmiDisplayInformation::GetForCurrentView()->GetCurrentDisplayMode();
+		HdmiDisplayInformation ^ hdmi = HdmiDisplayInformation::GetForCurrentView();
+		auto mode = hdmi->GetCurrentDisplayMode();
 		auto height = mode->ResolutionHeightInRawPixels;
 		if (height < 2160) {
 			EnableHDRCheckbox->IsEnabled = false;
@@ -108,6 +138,27 @@ void HostSettingsPage::OnNavigatedTo(Windows::UI::Xaml::Navigation::NavigationEv
 			EnableHDRCheckbox->IsEnabled = true;
 			EnableHDRCheckbox->Visibility = Windows::UI::Xaml::Visibility::Visible;
 			HDR4KNote->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+		}
+
+		// Disable HDR if there are no available HDR video modes
+		bool hdrAvailable = false;
+		for (auto mode : hdmi->GetSupportedDisplayModes()) {
+			if (mode->IsSmpte2084Supported) {
+				hdrAvailable = true;
+				break;
+			}
+		}
+		if (!hdrAvailable) {
+			EnableHDRCheckbox->IsEnabled = false;
+			EnableHDRCheckbox->IsChecked = false;
+			EnableHDRCheckbox->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+			EnableHDRCheckboxDesc->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
+			HDRNotAvailNote->Visibility = Windows::UI::Xaml::Visibility::Visible;
+		} else {
+			EnableHDRCheckbox->IsEnabled = true;
+			EnableHDRCheckbox->Visibility = Windows::UI::Xaml::Visibility::Visible;
+			EnableHDRCheckboxDesc->Visibility = Windows::UI::Xaml::Visibility::Visible;
+			HDRNotAvailNote->Visibility = Windows::UI::Xaml::Visibility::Collapsed;
 		}
 
 		// Disable graphs at 4K on Xbox One
@@ -146,7 +197,7 @@ void HostSettingsPage::ResolutionSelector_SelectionChanged(Platform::Object^ sen
 
 	// Default to a new bitrate if a new resolution was chosen
 	if (selectedResolution->Width != host->Resolution->Width) {
-		host->Bitrate = getDefaultBitrate(selectedResolution->Width, selectedResolution->Height, host->FPS);
+		host->Bitrate = getDefaultBitrate(selectedResolution->Width, selectedResolution->Height, host->FPS, host->VideoCodec);
 	}
 
 	host->Resolution = selectedResolution;
@@ -159,7 +210,7 @@ void HostSettingsPage::FPSSelector_SelectionChanged(Platform::Object^ sender, Wi
 
 	// Default to a new bitrate if a new FPS was chosen
 	if (selectedFPS != host->FPS) {
-		host->Bitrate = getDefaultBitrate(host->Resolution->Width, host->Resolution->Height, selectedFPS);
+		host->Bitrate = getDefaultBitrate(host->Resolution->Width, host->Resolution->Height, selectedFPS, host->VideoCodec);
 	}
 
 	host->FPS = selectedFPS;
@@ -174,6 +225,17 @@ void HostSettingsPage::AutoStartSelector_SelectionChanged(Platform::Object^ send
 	else {
 		host->AutostartID = -1;
 	}
+}
+
+void HostSettingsPage::CodecComboBox_SelectionChanged(Platform::Object^ sender, Windows::UI::Xaml::Controls::SelectionChangedEventArgs^ e)
+{
+	auto selectedCodec = AvailableVideoCodecs->GetAt(this->CodecComboBox->SelectedIndex);
+
+	if (selectedCodec != host->VideoCodec) {
+		host->Bitrate = getDefaultBitrate(host->Resolution->Width, host->Resolution->Height, host->FPS, selectedCodec);
+	}
+
+	host->VideoCodec = selectedCodec;
 }
 
 void HostSettingsPage::FramePacing_SelectionChanged(Platform::Object^ sender, Windows::UI::Xaml::Controls::SelectionChangedEventArgs^ e)
@@ -216,7 +278,7 @@ void HostSettingsPage::OnUnloaded(Platform::Object^ sender, Windows::UI::Xaml::R
 	navigation->BackRequested -= m_back_cookie;
 }
 
-int HostSettingsPage::getDefaultBitrate(int width, int height, int fps)
+int HostSettingsPage::getDefaultBitrate(int width, int height, int fps, Platform::String^ codec)
 {
     // Don't scale bitrate linearly beyond 60 FPS. It's definitely not a linear
     // bitrate increase for frame rate once we get to values that high.
@@ -261,6 +323,25 @@ int HostSettingsPage::getDefaultBitrate(int width, int height, int fps)
             break;
         }
     }
+
+	// PyroWave is intra-only and needs far more bitrate than H.264/HEVC for
+	// the same quality. When it is selected, raise the bitrate to roughly
+	// 0.5 bits/pixel at the configured resolution and frame rate.
+	if (codec == "PyroWave 4:2:0" || codec == "PyroWave 4:4:4") {
+		switch (height) {
+			case 2160:
+				resolutionFactor = 500;
+				break;
+			case 1440:
+				resolutionFactor = 250;
+				break;
+			default:
+				resolutionFactor = 125;
+				break;
+		}
+
+		frameRateFactor = fps / 120.0;
+	}
 
     return std::lround(resolutionFactor * frameRateFactor) * 1000;
 }

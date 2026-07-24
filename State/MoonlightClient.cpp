@@ -13,6 +13,7 @@ extern "C" {
 #include <cmath>
 #include <gamingdeviceinformation.h>
 #include "Streaming\FFMpegDecoder.h"
+#include "Streaming\PyroWaveDecoder.h"
 
 using namespace moonlight_xbox_dx;
 using namespace Windows::Gaming::Input;
@@ -125,7 +126,11 @@ bool MoonlightClient::SetDisplayHDR(bool enabled, const SS_HDR_METADATA &sunshin
 
 	// A non-HDR display viewing an HDR stream will error out here with no mode found
 	if (newMode == nullptr) {
-		Utils::Log("SetDisplayHDR(): HDR is unavailable, no suitable display mode found\n");
+		Utils::Log("SetDisplayHDR(): no HDR mode found, check Xbox Video Modes\n");
+
+		// fall back to the current display in SDR
+		enabled = false;
+		m_isHDR = false;
 		return false;
 	}
 
@@ -261,11 +266,41 @@ int MoonlightClient::StartStreaming(std::shared_ptr<DX::DeviceResources> res, St
 	config.colorSpace = COLORSPACE_REC_601;
 	config.encryptionFlags = ENCFLG_AUDIO;
 	config.packetSize = 1024;
+	// Advertised formats follow the user's codec selection. PyroWave is
+	// only offered when explicitly chosen (RTSP prefers it over everything
+	// on mutual capability, so always advertising it would force it on for
+	// any PyroWave-capable server); HEVC/H264 stay advertised as fallback
+	// for servers without PyroWave support.
+	bool pyrowave420 = sConfig->videoCodec == "PyroWave 4:2:0";
+	bool pyrowave444 = sConfig->videoCodec == "PyroWave 4:4:4";
+	bool wantHevc = !(sConfig->videoCodec == "H.264");
+	if ((pyrowave420 || pyrowave444) && IsXboxOne()) {
+		// UWP on the Xbox One generation never exposes compute shaders (FL 10
+		// even as Game type — probed on a One X, 2026-08-02), so the decoder
+		// cannot run there. The settings page hides PyroWave on these consoles;
+		// this catches a selection saved by an older build or another console,
+		// which must not be advertised: the host would happily negotiate it
+		// and the stream would die when Decoder::Init rejects the kernels.
+		Utils::Log("PyroWave codec selected but this console cannot run the decoder; advertising HEVC/H.264 instead\n");
+		pyrowave420 = pyrowave444 = false;
+	}
 	config.supportedVideoFormats = VIDEO_FORMAT_H264;
-	if (!IsXboxOneVCR()) {
+	if (!IsXboxOneVCR() && wantHevc) {
 		config.supportedVideoFormats |= VIDEO_FORMAT_H265;
 		if (sConfig->enableHDR) {
 			config.supportedVideoFormats |= VIDEO_FORMAT_H265_MAIN10;
+		}
+	}
+	if (pyrowave420 || pyrowave444) {
+		config.supportedVideoFormats |= VIDEO_FORMAT_PYROWAVE;
+		if (sConfig->enableHDR) {
+			config.supportedVideoFormats |= VIDEO_FORMAT_PYROWAVE10_420;
+		}
+	}
+	if (pyrowave444) {
+		config.supportedVideoFormats |= VIDEO_FORMAT_PYROWAVE_444;
+		if (sConfig->enableHDR) {
+			config.supportedVideoFormats |= VIDEO_FORMAT_PYROWAVE10_444;
 		}
 	}
 
@@ -288,7 +323,7 @@ int MoonlightClient::StartStreaming(std::shared_ptr<DX::DeviceResources> res, St
 		char message[2048];
 		sprintf(message, "gs_startapp failed with status code %d\n", a);
 		Utils::Log(message);
-		
+
 		if (gs_error) {
 			char errorMessage[2048];
 			sprintf(errorMessage, "%s\n", gs_error);
@@ -315,6 +350,7 @@ int MoonlightClient::StartStreaming(std::shared_ptr<DX::DeviceResources> res, St
 	callbacks.rumbleTriggers = connection_trigger_rumble;
 
 	FFMpegDecoder::instance().CompleteInitialization(res, &config, sConfig->framePacing == "Immediate");
+	PyroWaveDecoder::instance().CompleteInitialization(res, &config);
 	DECODER_RENDERER_CALLBACKS rCallbacks = FFMpegDecoder::getDecoder();
 
 	AUDIO_RENDERER_CALLBACKS aCallbacks = AudioPlayer::getDecoder();
@@ -340,7 +376,7 @@ void log_message(const char *fmt, ...) {
 	va_start(argp, fmt);
 	char message[2048];
 	vsprintf_s(message, fmt, argp);
-	
+
 	// Append a single '\n' only if the string doesn't already end with one.
 	size_t len = strlen(message);
 	if (len == 0 || message[len - 1] != '\n') {
@@ -586,6 +622,10 @@ Platform::String ^ MoonlightClient::GetServerMacAddress() {
 		return nullptr;
 	}
 	return Utils::StringFromChars(serverData.macAddress);
+}
+
+int MoonlightClient::GetServerCodecModeSupport() {
+	return serverData.serverInfo.serverCodecModeSupport;
 }
 
 void MoonlightClient::KeyDown(unsigned short v, char modifiers) {

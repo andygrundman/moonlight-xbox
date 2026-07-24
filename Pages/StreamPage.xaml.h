@@ -157,6 +157,7 @@ namespace moonlight_xbox_dx
 		void toggleHDR_WinAltB_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void resetDecoder_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void toggleFramePacing_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void captureFrameButton_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 
 		Windows::Foundation::EventRegistrationToken gamepadAddedHandler, gamepadRemovedHandler;
 		std::atomic<bool> m_refreshGamepads{false};

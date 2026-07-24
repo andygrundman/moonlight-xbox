@@ -26,6 +26,7 @@ namespace moonlight_xbox_dx {
 				this->ComputerName = client->GetComputerName();
 				this->ServerAddress = client->GetServerAddress();
 				this->MacAddress = client->GetServerMacAddress();
+				this->ServerCodecModeSupport = client->GetServerCodecModeSupport();
 			}
 		}
 		if (showLoading) this->Loading = false;

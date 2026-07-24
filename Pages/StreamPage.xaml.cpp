@@ -6,6 +6,7 @@
 #include "pch.h"
 #include "StreamPage.xaml.h"
 #include "../Streaming/FFMpegDecoder.h"
+#include "../Streaming/PyroWaveDecoder.h"
 #include <Utils.hpp>
 #include <KeyboardControl.xaml.h>
 #include "../Common/ModalDialog.xaml.h"
@@ -325,6 +326,22 @@ void StreamPage::toggleFramePacing_Click(Platform::Object^ sender, Windows::UI::
 	// thread safe atomic bool
 	bool isImmediate = Pacer::instance().getPacingImmediate();
 	Pacer::instance().setPacingImmediate(isImmediate ? false : true);
+}
+
+void StreamPage::captureFrameButton_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e)
+{
+	// Grab a short burst rather than a single frame: per-frame byte
+	// distribution varies enough with content that one frame is a thin basis
+	// for FEC tuning, and the extra files cost a couple of MB.
+	const int kCaptureFrames = 4;
+
+	int armed = PyroWaveDecoder::instance().CaptureFrames(kCaptureFrames);
+	if (armed > 0) {
+		Utils::Logf("Frame capture: saving the next %d frames to LocalState\n", armed);
+	}
+	else {
+		Utils::Log("Frame capture: only available while streaming with PyroWave\n");
+	}
 }
 
 void StreamPage::OnPropertyChanged(Platform::String^ propertyName)

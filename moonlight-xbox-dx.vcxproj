@@ -237,7 +237,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Link>
-      <AdditionalDependencies>$(ProjectDir)/libgamestream/build/$(Configuration)/gamestream.lib;$(ProjectDir)/third_party/DirectXTK/Bin/Windows10_2022/x64/$(Configuration)/DirectXTK.lib;libexpat.lib;libcurl.lib;libcrypto.lib;libssl.lib;avcodec.lib;avutil.lib;swscale.lib;d2d1.lib;d3d11.lib;dxgi.lib;dxguid.lib;windowscodecs.lib;dwrite.lib;opus.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(ProjectDir)/libgamestream/build/$(Configuration)/gamestream.lib;$(ProjectDir)/third_party/DirectXTK/Bin/Windows10_2022/x64/$(Configuration)/DirectXTK.lib;libexpat.lib;libcurl.lib;libcrypto.lib;libssl.lib;avcodec.lib;avutil.lib;swscale.lib;d2d1.lib;d3d11.lib;dxgi.lib;dxguid.lib;windowscodecs.lib;dwrite.lib;ws2_32.lib;opus.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories);$(ProjectDir)vcpkg_installed\x64-uwp\lib;$(VCInstallDir)\lib\store\amd64;$(VCInstallDir)\lib\amd64;$(ProjectDir)third_party\moonlight-common-c\build\$(Configuration)\</AdditionalLibraryDirectories>
     </Link>
     <ClCompile>
@@ -256,7 +256,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Link>
-      <AdditionalDependencies>$(ProjectDir)/libgamestream/build/$(Configuration)/gamestream.lib;$(ProjectDir)/third_party/DirectXTK/Bin/Windows10_2022/x64/$(Configuration)/DirectXTK.lib;libexpat.lib;libcurl.lib;libcrypto.lib;libssl.lib;avcodec.lib;avutil.lib;swscale.lib;d2d1.lib;d3d11.lib;dxgi.lib;windowscodecs.lib;dwrite.lib;opus.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(ProjectDir)/libgamestream/build/$(Configuration)/gamestream.lib;$(ProjectDir)/third_party/DirectXTK/Bin/Windows10_2022/x64/$(Configuration)/DirectXTK.lib;libexpat.lib;libcurl.lib;libcrypto.lib;libssl.lib;avcodec.lib;avutil.lib;swscale.lib;d2d1.lib;d3d11.lib;dxgi.lib;windowscodecs.lib;dwrite.lib;ws2_32.lib;opus.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories);$(ProjectDir)vcpkg_installed\x64-uwp\lib;$(VCInstallDir)\lib\store\amd64;$(VCInstallDir)\lib\amd64;$(ProjectDir)third_party\moonlight-common-c\build\$(Configuration)\</AdditionalLibraryDirectories>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
@@ -354,6 +354,9 @@
     <ClInclude Include="Streaming\FrameCadence.h" />
     <ClInclude Include="Streaming\FrameQueue.h" />
     <ClInclude Include="Streaming\Pacer.h" />
+    <ClInclude Include="Streaming\PyroWave\D3D11Decoder.h" />
+    <ClInclude Include="Streaming\PyroWave\FramePool.h" />
+    <ClInclude Include="Streaming\PyroWaveDecoder.h" />
     <ClInclude Include="Streaming\PacerCompat.h" />
     <ClInclude Include="Streaming\VideoRenderer.h" />
     <ClInclude Include="Streaming\LogRenderer.h" />
@@ -496,6 +499,9 @@
     <ClCompile Include="Streaming\FrameQueue.cpp" />
     <ClCompile Include="Streaming\LogRenderer.cpp" />
     <ClCompile Include="Streaming\Pacer.cpp" />
+    <ClCompile Include="Streaming\PyroWave\D3D11Decoder.cpp" />
+    <ClCompile Include="Streaming\PyroWave\FramePool.cpp" />
+    <ClCompile Include="Streaming\PyroWaveDecoder.cpp" />
     <ClCompile Include="Streaming\VideoRenderer.cpp" />
     <ClCompile Include="State\MDNSHandler.cpp" />
     <ClCompile Include="Pages\HostSettingsPage.xaml.cpp">
@@ -624,6 +630,22 @@
       <FileType>Document</FileType>
     </None>
     <None Include="Assets\Shader\d3d11_yuv420_pixel_array.fxc">
+      <DeploymentContent>true</DeploymentContent>
+      <FileType>Document</FileType>
+    </None>
+    <None Include="Assets\Shader\d3d11_pyrowave_pixel.fxc">
+      <DeploymentContent>true</DeploymentContent>
+      <FileType>Document</FileType>
+    </None>
+    <None Include="Assets\Shader\idwt_sm50.fxc">
+      <DeploymentContent>true</DeploymentContent>
+      <FileType>Document</FileType>
+    </None>
+    <None Include="Assets\Shader\idwt_dc_sm50.fxc">
+      <DeploymentContent>true</DeploymentContent>
+      <FileType>Document</FileType>
+    </None>
+    <None Include="Assets\Shader\dequant_sm50.fxc">
       <DeploymentContent>true</DeploymentContent>
       <FileType>Document</FileType>
     </None>

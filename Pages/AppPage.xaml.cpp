@@ -171,7 +171,8 @@ void AppPage::Connect(int appId) {
 	config->framePacing = host->FramePacing;
 	config->enableStats = host->EnableStats;
 	config->enableGraphs = host->EnableGraphs;
-	if (config->enableHDR) {
+	// H.264 has no 10-bit profile here; PyroWave and HEVC both handle HDR
+	if (config->enableHDR && host->VideoCodec == "H.264") {
 		host->VideoCodec = "HEVC (H.265)";
 	}
 	bool result = this->Frame->Navigate(Windows::UI::Xaml::Interop::TypeName(StreamPage::typeid), config);

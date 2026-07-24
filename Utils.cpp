@@ -17,6 +17,7 @@ namespace moonlight_xbox_dx {
 		bool showLogs = false;
 		bool showStats = false;
 		std::mutex logMutex;
+		static FILE* logMirror = nullptr;
 
 		Platform::String^ StringPrintf(const char* fmt, ...) {
 			va_list args;
@@ -62,6 +63,12 @@ namespace moonlight_xbox_dx {
         OutputDebugString(string.c_str());
 				{
 					std::unique_lock<std::mutex> lk(logMutex);
+					if (logMirror) {
+						fwrite(msg.data(), 1, msg.size(), logMirror);
+						if (msg.empty() || msg.back() != '\n')
+							fputc('\n', logMirror);
+						fflush(logMirror);
+					}
 					if (logLines.size() == LOG_LINES) {
 						logLines.erase(logLines.begin());
 					}
@@ -98,6 +105,21 @@ namespace moonlight_xbox_dx {
 			va_end(args);
 
 			Log(std::string_view(buf));
+		}
+
+		void BeginLogMirror(const char* path) {
+			std::unique_lock<std::mutex> lk(logMutex);
+			if (logMirror)
+				fclose(logMirror);
+			logMirror = nullptr;
+			fopen_s(&logMirror, path, "wb");
+		}
+
+		void EndLogMirror() {
+			std::unique_lock<std::mutex> lk(logMutex);
+			if (logMirror)
+				fclose(logMirror);
+			logMirror = nullptr;
 		}
 
 		std::vector<std::wstring> GetLogLines() {
