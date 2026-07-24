@@ -180,7 +180,6 @@ namespace moonlight_xbox_dx
 		Windows::UI::Xaml::Controls::TextBlock^ m_audioGlitchText;
 		void audioGlitchText_Loaded(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ args);
 		void UpdateAudioGlitchText();
-
 		Windows::Foundation::EventRegistrationToken gamepadAddedHandler, gamepadRemovedHandler;
 		std::atomic<bool> m_refreshGamepads{false};
 		void OnGamepadAdded(Platform::Object^, Windows::Gaming::Input::Gamepad^ args);

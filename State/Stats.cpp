@@ -3,6 +3,7 @@
 #include "Utils.hpp"
 #include "../Plot/ImGuiPlots.h"
 #include "../Streaming/FFMpegDecoder.h"
+#include "../Streaming/PyroWaveDecoder.h"
 
 using namespace moonlight_xbox_dx;
 
@@ -16,7 +17,6 @@ Stats::Stats() :
 	m_bwTracker(10, 250),
 	m_avgQueueSize(0.0),
 	m_avgMbpsSmoothed(0.0),
-	m_gpuTimeMs(0.0f),
 	m_audioGlitchCount(0)
 {
 	Reset();
@@ -28,7 +28,6 @@ void Stats::Reset()
 	m_bwTracker.Reset();
 	m_avgQueueSize = 1.0f;
 	m_avgMbpsSmoothed = 0.0;
-	m_gpuTimeMs = 0.0f;
 	m_audioGlitchCount = 0;
 
 	ZeroMemory(&m_ActiveWndVideoStats, sizeof(VIDEO_STATS));
@@ -93,6 +92,10 @@ void Stats::SubmitVideoBytesAndReassemblyTime(uint32_t length, PDECODE_UNIT deco
 	uint32_t reassemblyUs = (uint32_t)(decodeUnit->enqueueTimeUs - decodeUnit->receiveTimeUs);
 	m_ActiveWndVideoStats.totalReassemblyTimeUs += reassemblyUs;
 
+	if (decodeUnit->isPartial) {
+		m_ActiveWndVideoStats.partialFrames++;
+	}
+
 	// Host processing latency
 	uint16_t frameHPL = decodeUnit->frameHostProcessingLatency;
 	if (frameHPL != 0) {
@@ -137,11 +140,22 @@ void Stats::ResetAudioGlitchCount() {
 	m_audioGlitchCount = 0;
 }
 
-// Time in milliseconds we spent decoding one frame, it is added up to later be divided by decodedFrames
+// Time in milliseconds we spent decoding one frame, it is added up to later be divided by decodedFrames.
+// For GPU decoders (PyroWave) this is CPU submit time; see SubmitGpuDecodeMs for the GPU side.
 void Stats::SubmitDecodeMs(double decodeMs) {
 	std::lock_guard<std::mutex> lock(m_mutex);
 	m_ActiveWndVideoStats.totalDecodeTimeMs += decodeMs;
 	m_ActiveWndVideoStats.decodedFrames++;
+}
+
+// Measured GPU execution time of one frame's decode (timestamp queries,
+// PyroWave only — the ffmpeg/VCN path has no publicly measurable GPU time).
+// Results arrive a few frames late and some frames are skipped; that's fine
+// for an average.
+void Stats::SubmitGpuDecodeMs(double gpuMs) {
+	std::lock_guard<std::mutex> lock(m_mutex);
+	m_ActiveWndVideoStats.totalGpuDecodeTimeMs += gpuMs;
+	m_ActiveWndVideoStats.gpuTimedFrames++;
 }
 
 void Stats::SubmitDroppedFrame(int count) {
@@ -187,8 +201,7 @@ void Stats::SubmitRenderStats(double preWaitTimeMs, double renderTimeMs, double 
 
 void Stats::SubmitGpuTime(float gpuTimeMs) {
 	std::lock_guard<std::mutex> lock(m_mutex);
-	m_gpuTimeMs = gpuTimeMs;
-	m_ActiveWndVideoStats.totalGPUTimeMs += gpuTimeMs;
+	m_ActiveWndVideoStats.totalGpuDecodeTimeMs += gpuTimeMs;
 }
 
 /// private methods
@@ -199,12 +212,14 @@ void Stats::addVideoStats(DX::StepTimer const& timer, VIDEO_STATS& src, VIDEO_ST
 	dst.renderedFrames += src.renderedFrames;
 	dst.totalFrames += src.totalFrames;
 	dst.networkDroppedFrames += src.networkDroppedFrames;
+	dst.partialFrames += src.partialFrames;
 	dst.pacerDroppedFrames += src.pacerDroppedFrames;
 	dst.hitDeadlines += src.hitDeadlines;
 	dst.missedDeadlines += src.missedDeadlines;
 	dst.totalReassemblyTimeUs += src.totalReassemblyTimeUs;
 	dst.totalDecodeTimeMs += src.totalDecodeTimeMs;
-	dst.totalGPUTimeMs += src.totalGPUTimeMs;
+	dst.totalGpuDecodeTimeMs += src.totalGpuDecodeTimeMs;
+	dst.gpuTimedFrames += src.gpuTimedFrames;
 	dst.totalPacerTimeUs += src.totalPacerTimeUs;
 	dst.totalRenderTimeUs += src.totalRenderTimeUs;
 	dst.totalPreWaitTimeUs += src.totalPreWaitTimeUs;
@@ -247,8 +262,13 @@ void Stats::addVideoStats(DX::StepTimer const& timer, VIDEO_STATS& src, VIDEO_ST
 	dst.renderedFps = (double)dst.renderedFrames / (now - dst.measurementStartTimestamp);
 }
 
-void Stats::formatVideoStats(DX::StepTimer const &timer, VIDEO_STATS &stats, char *output, size_t length) {
-	FFMpegDecoder &ffmpeg = FFMpegDecoder::instance();
+void Stats::formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, char* output, size_t length) {
+	FFMpegDecoder& ffmpeg = FFMpegDecoder::instance();
+	PyroWaveDecoder& pyrowave = PyroWaveDecoder::instance();
+
+	int videoFormat = pyrowave.IsActive() ? pyrowave.videoFormat : ffmpeg.videoFormat;
+	int videoWidth = pyrowave.IsActive() ? pyrowave.width : ffmpeg.width;
+	int videoHeight = pyrowave.IsActive() ? pyrowave.height : ffmpeg.height;
 
 	int offset = 0;
 	const char *codecString;
@@ -257,7 +277,8 @@ void Stats::formatVideoStats(DX::StepTimer const &timer, VIDEO_STATS &stats, cha
 	// Start with an empty string
 	output[offset] = 0;
 
-	switch (ffmpeg.videoFormat) {
+	switch (videoFormat)
+	{
 	case VIDEO_FORMAT_H264:
 		codecString = "H.264";
 		break;
@@ -314,6 +335,32 @@ void Stats::formatVideoStats(DX::StepTimer const &timer, VIDEO_STATS &stats, cha
 		}
 		break;
 
+	case VIDEO_FORMAT_PYROWAVE:
+		codecString = "PyroWave";
+		break;
+
+	case VIDEO_FORMAT_PYROWAVE_444:
+		codecString = "PyroWave 4:4:4";
+		break;
+
+	case VIDEO_FORMAT_PYROWAVE10_420:
+		if (LiGetCurrentHostDisplayHdrMode()) {
+			codecString = "PyroWave 10-bit HDR";
+		}
+		else {
+			codecString = "PyroWave 10-bit SDR";
+		}
+		break;
+
+	case VIDEO_FORMAT_PYROWAVE10_444:
+		if (LiGetCurrentHostDisplayHdrMode()) {
+			codecString = "PyroWave 10-bit HDR 4:4:4";
+		}
+		else {
+			codecString = "PyroWave 10-bit SDR 4:4:4";
+		}
+		break;
+
 	default:
 		codecString = "UNKNOWN";
 		break;
@@ -321,12 +368,12 @@ void Stats::formatVideoStats(DX::StepTimer const &timer, VIDEO_STATS &stats, cha
 
 	if (stats.receivedFps > 0) {
 		ret = snprintf(&output[offset],
-		               length - offset,
-		               "Video stream: %dx%d %.2f FPS (%s)\n",
-		               ffmpeg.width,
-		               ffmpeg.height,
-		               stats.totalFps,
-		               codecString);
+						length - offset,
+						"Video stream: %dx%d %.2f FPS (%s)\n",
+						videoWidth,
+						videoHeight,
+						stats.totalFps,
+						codecString);
 		if (ret < 0 || (size_t)ret >= (length - offset)) {
 			Utils::Log("Error: stringifyVideoStats length overflow\n");
 			return;
@@ -400,9 +447,17 @@ void Stats::formatVideoStats(DX::StepTimer const &timer, VIDEO_STATS &stats, cha
 			         stats.decodedFrames ? (double)stats.totalDecodeTimeMs / stats.decodedFrames : 0.0f,
 			         m_avgQueueSize);
 		} else {
-			snprintf(decodeTimeStr, sizeof(decodeTimeStr), "%.2f/%.2f ms",
-			         stats.decodedFrames ? (double)stats.totalReassemblyTimeUs / 1000.0 / stats.decodedFrames : 0.0f,
-			         stats.decodedFrames ? (double)stats.totalDecodeTimeMs / stats.decodedFrames : 0.0f);
+			if (pyrowave.IsActive()) {
+				snprintf(decodeTimeStr, sizeof(decodeTimeStr), "(CPU) %.2f/%.2f (GPU) %.2f ms",
+						stats.decodedFrames ? (double)stats.totalReassemblyTimeUs / 1000.0 / stats.decodedFrames : 0.0f,
+						stats.decodedFrames ? (double)stats.totalDecodeTimeMs / stats.decodedFrames : 0.0f,
+						stats.gpuTimedFrames ? (double)stats.totalGpuDecodeTimeMs / stats.gpuTimedFrames : 0.0f);
+
+			} else {
+				snprintf(decodeTimeStr, sizeof(decodeTimeStr), "%.2f/%.2f ms",
+						stats.decodedFrames ? (double)stats.totalReassemblyTimeUs / 1000.0 / stats.decodedFrames : 0.0f,
+						stats.decodedFrames ? (double)stats.totalDecodeTimeMs / stats.decodedFrames : 0.0f);
+			}
 		}
 
 		ret = snprintf(&output[offset],

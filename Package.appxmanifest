@@ -9,14 +9,14 @@
 
   <Identity
     Name="50497EliaZammuto.MoonlightUWP"
-	Publisher="CN=CE07B73A-712E-4E05-932B-D08CE2C8A87C"
-    Version="1.18.3.0" />
+	Publisher="CN=Andy Grundman, O=hybridized.org, C=US"
+    Version="26.26.1.0" />
 
   <mp:PhoneIdentity PhoneProductId="05850585-e2ce-441e-beae-1c76b89fe7ed" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
-    <DisplayName>Moonlight UWP</DisplayName>
-    <PublisherDisplayName>TheElixZammuto</PublisherDisplayName>
+    <DisplayName>Moonlight UWP (AndyG)</DisplayName>
+    <PublisherDisplayName>https://github.com/andygrundman/moonlight-xbox/releases/tag/1.18.2-pre4</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
@@ -33,7 +33,7 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="moonlight_xbox_dx.App">
       <uap:VisualElements
-        DisplayName="Moonlight UWP"
+        DisplayName="Moonlight UWP (AndyG)"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png"
         Description="moonlight-xbox-dx"

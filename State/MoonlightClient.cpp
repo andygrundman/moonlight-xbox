@@ -14,6 +14,7 @@ extern "C" {
 #include <string>
 #include <gamingdeviceinformation.h>
 #include "Streaming\FFMpegDecoder.h"
+#include "Streaming\PyroWaveDecoder.h"
 
 using namespace moonlight_xbox_dx;
 using namespace Windows::Gaming::Input;
@@ -126,7 +127,11 @@ bool MoonlightClient::SetDisplayHDR(bool enabled, const SS_HDR_METADATA &sunshin
 
 	// A non-HDR display viewing an HDR stream will error out here with no mode found
 	if (newMode == nullptr) {
-		Utils::Log("SetDisplayHDR(): HDR is unavailable, no suitable display mode found\n");
+		Utils::Log("SetDisplayHDR(): no HDR mode found, check Xbox Video Modes\n");
+
+		// fall back to the current display in SDR
+		enabled = false;
+		m_isHDR = false;
 		return false;
 	}
 
@@ -270,6 +275,23 @@ int MoonlightClient::StartStreaming(std::shared_ptr<DX::DeviceResources> res, St
 			config.supportedVideoFormats |= VIDEO_FORMAT_H265_MAIN10;
 		}
 	}
+	if (!IsXboxOne()) {
+		// PyroWave is only offered when explicitly chosen
+		bool pyrowave420 = sConfig->videoCodec == "PyroWave 4:2:0";
+		bool pyrowave444 = sConfig->videoCodec == "PyroWave 4:4:4";
+		if (pyrowave420 || pyrowave444) {
+			config.supportedVideoFormats |= VIDEO_FORMAT_PYROWAVE;
+			if (sConfig->enableHDR) {
+				config.supportedVideoFormats |= VIDEO_FORMAT_PYROWAVE10_420;
+			}
+		}
+		if (pyrowave444) {
+			config.supportedVideoFormats |= VIDEO_FORMAT_PYROWAVE_444;
+			if (sConfig->enableHDR) {
+				config.supportedVideoFormats |= VIDEO_FORMAT_PYROWAVE10_444;
+			}
+		}
+	}
 
 	config.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
 	if (sConfig->audioConfig == "Surround 5.1") {
@@ -317,6 +339,7 @@ int MoonlightClient::StartStreaming(std::shared_ptr<DX::DeviceResources> res, St
 	callbacks.rumbleTriggers = connection_trigger_rumble;
 
 	FFMpegDecoder::instance().CompleteInitialization(res, &config, sConfig->framePacing == "Immediate");
+	PyroWaveDecoder::instance().CompleteInitialization(res, &config);
 	DECODER_RENDERER_CALLBACKS rCallbacks = FFMpegDecoder::getDecoder();
 
 	AUDIO_RENDERER_CALLBACKS aCallbacks = AudioPlayer::getDecoder();
@@ -595,6 +618,10 @@ Platform::String ^ MoonlightClient::GetServerMacAddress() {
 		return nullptr;
 	}
 	return Utils::StringFromChars(serverData.macAddress);
+}
+
+int MoonlightClient::GetServerCodecModeSupport() {
+	return serverData.serverInfo.serverCodecModeSupport;
 }
 
 void MoonlightClient::KeyDown(unsigned short v, char modifiers) {

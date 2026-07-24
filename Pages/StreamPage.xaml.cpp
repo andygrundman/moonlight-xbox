@@ -9,6 +9,7 @@
 #include "../Streaming/AudioPlayer.h"
 #include "../Streaming/FrameQueue.h"
 #include "../Streaming/FFMpegDecoder.h"
+#include "../Streaming/PyroWaveDecoder.h"
 #include <Utils.hpp>
 #include <KeyboardControl.xaml.h>
 #include "../Common/ModalDialog.xaml.h"
@@ -368,8 +369,19 @@ void StreamPage::toggleCapture_Click(Platform::Object^ sender, Windows::UI::Xaml
 
 void StreamPage::SetCaptureMode(bool wanted)
 {
-	this->CaptureMode = wanted;
-	FFMpegDecoder::instance().SetCapture(wanted);
+	FFMpegDecoder& ffmpeg = FFMpegDecoder::instance();
+	PyroWaveDecoder& pyrowave = PyroWaveDecoder::instance();
+
+	if (pyrowave.IsActive()) {
+		// if streaming Pyrowave, capture only a few frames
+		int armed = pyrowave.CaptureFrames(4);
+		if (armed > 0) {
+			Utils::Logf("Frame capture (PyroWave): saving the next %d frames to LocalState\n", armed);
+		}
+	} else {
+		this->CaptureMode = wanted;
+		ffmpeg.SetCapture(wanted);
+	}
 }
 
 // Audio buffer slider

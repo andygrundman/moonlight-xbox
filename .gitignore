@@ -348,3 +348,6 @@ vcpkg_installed
 .stfolder/
 .stignore
 
+
+# Generated PyroWave golden test vector (regenerate: see tools/pyrowave_dump_golden.cpp)
+Assets/pyrowave_testvec.bin

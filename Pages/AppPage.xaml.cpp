@@ -173,9 +173,9 @@ void AppPage::Connect(int appId) {
 	config->packetSize = host->PacketSize;
 	config->enableStats = host->EnableStats;
 	config->enableGraphs = host->EnableGraphs;
-
-	if (config->enableHDR) {
-		config->videoCodec = "HEVC (H.265)";
+	// H.264 has no 10-bit profile here; PyroWave and HEVC both handle HDR
+	if (config->enableHDR && host->VideoCodec == "H.264") {
+		host->VideoCodec = "HEVC (H.265)";
 	}
 
 	if (IsXbox() && config->videoCodec == "H.264") {
