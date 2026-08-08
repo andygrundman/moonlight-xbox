@@ -112,10 +112,6 @@ moonlight_xbox_dxMain::moonlight_xbox_dxMain(const std::shared_ptr<DX::DeviceRes
 	// Register to be notified if the Device is lost or recreated
 	m_deviceResources->RegisterDeviceNotify(this);
 
-	// Setup stats object. DeviceResources keeps a reference so that various components such as FFMpegDecoder can get to it
-	m_stats = std::make_shared<Stats>();
-	m_deviceResources->SetStats(m_stats);
-
 	m_sceneRenderer = std::make_shared<VideoRenderer>(m_deviceResources, moonlightClient, configuration);
 
 	client->OnCompleted = ([this, streamPage, configuration]() {
@@ -146,8 +142,11 @@ moonlight_xbox_dxMain::moonlight_xbox_dxMain(const std::shared_ptr<DX::DeviceRes
 
 	m_LogRenderer = std::make_unique<LogRenderer>(m_deviceResources);
 
-	m_statsTextRenderer = std::make_unique<StatsRenderer>(m_deviceResources, m_stats);
+	m_statsTextRenderer = std::make_unique<StatsRenderer>(m_deviceResources);
 	m_statsTextRenderer->SetVisible(configuration->enableStats);
+
+	// Reset Stats since it may have data from a prior stream
+	Stats::instance().Reset();
 
 	// We're now connected and can register for gamepad events
 	for (int i = 0; i < MAX_GAMEPADS; i++) {
@@ -304,7 +303,7 @@ void moonlight_xbox_dxMain::StartRenderLoop() {
 				// Track high-level render loop stats
 				double preWaitMs = QpcToMs(t1 - t0);
 				double beforePresentMs = QpcToMs(t3 - t2);
-				m_deviceResources->GetStats()->SubmitRenderStats(preWaitMs, renderMs, beforePresentMs, hitDeadline);
+				Stats::instance().SubmitRenderStats(preWaitMs, renderMs, beforePresentMs, hitDeadline);
 
 				FQLog("render loop %.3fms %s%s%s pts:%.3fs frametime(c:%02.3fms h:%02.3fms) (Deadline %.3fms PreWait %.3fms (max %.3fms) + Render %.3fms (avg %.3f) + Present %.3fms)\n",
 				      QpcToMs(t3 - t0),                             // loop time

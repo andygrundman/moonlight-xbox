@@ -195,7 +195,7 @@ bool VideoRenderer::Render(AVFrame *frame) {
 	auto gpuTimer = Pacer::instance().GetGpuPerformanceTimer();
 	float gpuMs = gpuTimer->GetFrameTime();
 	ImGuiPlots::instance().observeFloat(PLOT_ETC, (float)gpuMs);
-	m_deviceResources->GetStats()->SubmitGpuTime(
+	Stats::instance().SubmitGpuTime(
 		gpuTimer->GetMinFrameTime(),
 		gpuTimer->GetMaxFrameTime(),
 		gpuTimer->GetAvgFrameTime());

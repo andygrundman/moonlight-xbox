@@ -27,6 +27,7 @@ namespace moonlight_xbox_dx {
         Platform::String^ videoCodec = "H.265";
         Platform::String^ audioConfig = "Stereo";
         Platform::String^ framePacing = "";
+        Platform::String^ audioBuffer = "30 ms";
         bool enableHDR = false;
         bool enableSOPS = false;
         bool enableStats = false;
@@ -227,6 +228,16 @@ namespace moonlight_xbox_dx {
                 if (framePacing == value)return;
                 this->framePacing = value;
                 OnPropertyChanged("FramePacing");
+            }
+        }
+
+        property Platform::String^ AudioBuffer
+        {
+            Platform::String^ get() { return this->audioBuffer; }
+            void set(Platform::String^ value) {
+                if (audioBuffer == value) return;
+                this->audioBuffer = value;
+                OnPropertyChanged("AudioBuffer");
             }
         }
 

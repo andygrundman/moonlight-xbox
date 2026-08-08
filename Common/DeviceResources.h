@@ -40,10 +40,6 @@ namespace DX
 		bool                        GetShowImGui() const                    { return m_showImGui; }
 		void                        SetShowImGui(bool show)                 { m_showImGui = show; }
 
-		// Stats helpers
-		void                        SetStats(const std::shared_ptr<moonlight_xbox_dx::Stats>& stats)  { m_stats = stats; }
-		std::shared_ptr<moonlight_xbox_dx::Stats>                           GetStats()                { return m_stats; }
-
 		// The size of the render target, in pixels.
 		Windows::Foundation::Size	GetOutputSize() const					{ return m_outputSize; }
 
@@ -120,7 +116,6 @@ namespace DX
 
 		DXGI_FORMAT                                     m_backBufferFormat;
 		bool                                            m_showImGui;
-		std::shared_ptr<moonlight_xbox_dx::Stats>       m_stats;
 		bool                                            m_imguiRunning;
 	};
 }

@@ -158,6 +158,16 @@ namespace moonlight_xbox_dx
 		void resetDecoder_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void toggleFramePacing_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 
+		Windows::UI::Xaml::Controls::Slider^ m_audioBufferSlider;
+		bool m_audioBufferSliderReady = false;
+		void audioBufferSlider_Loaded(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ args);
+		void audioBufferSliderItem_PreviewKeyDown(Platform::Object^ sender, Windows::UI::Xaml::Input::KeyRoutedEventArgs^ args);
+		void audioBufferSlider_ValueChanged(Platform::Object^ sender, Windows::UI::Xaml::Controls::Primitives::RangeBaseValueChangedEventArgs^ args);
+
+		Windows::UI::Xaml::Controls::TextBlock^ m_audioGlitchText;
+		void audioGlitchText_Loaded(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ args);
+		void UpdateAudioGlitchText();
+
 		Windows::Foundation::EventRegistrationToken gamepadAddedHandler, gamepadRemovedHandler;
 		std::atomic<bool> m_refreshGamepads{false};
 		void OnGamepadAdded(Platform::Object^, Windows::Gaming::Input::Gamepad^ args);

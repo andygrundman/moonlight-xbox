@@ -24,8 +24,9 @@ ImGuiPlots::ImGuiPlots() :
         Plot(kPlotDescs[PLOT_DROPPED_NETWORK]),
         Plot(kPlotDescs[PLOT_DROPPED_PACER]),
         Plot(kPlotDescs[PLOT_QUEUED_FRAMES]),
-
         Plot(kPlotDescs[PLOT_BANDWIDTH]),
+
+        Plot(kPlotDescs[PLOT_AUDIO_BUFFER_MS]),
         Plot(kPlotDescs[PLOT_ETC]),
     }},
     m_isEnabled(true)
@@ -53,4 +54,16 @@ float ImGuiPlots::observeFloatReturnAvg(int plotId, float value)
     assert(plotId >= 0 && plotId < PlotCount);
     plots_[static_cast<std::size_t>(plotId)].buffer.push(static_cast<float>(value));
     return plots_[static_cast<std::size_t>(plotId)].buffer.average();
+}
+
+float ImGuiPlots::getAvg(int plotId)
+{
+    assert(plotId >= 0 && plotId < PlotCount);
+    return plots_[static_cast<std::size_t>(plotId)].buffer.average();
+}
+
+void ImGuiPlots::clearBuffer(int plotId)
+{
+    assert(plotId >= 0 && plotId < PlotCount);
+    plots_[static_cast<std::size_t>(plotId)].buffer.clear();
 }

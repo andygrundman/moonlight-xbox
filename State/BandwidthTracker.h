@@ -44,6 +44,11 @@ public:
 	BandwidthTracker(std::uint32_t windowSeconds = 10, std::uint32_t bucketIntervalMs = 250);
 
 	/**
+	 * @brief Reset all data to zero.
+	 */
+	void Reset();
+
+	/**
 	 * @brief Record bytes that were received or sent.
 	 *
 	 * This method updates the corresponding bucket for the current time interval with the new data.

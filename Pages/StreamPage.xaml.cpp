@@ -5,6 +5,7 @@
 
 #include "pch.h"
 #include "StreamPage.xaml.h"
+#include "../Streaming/AudioPlayer.h"
 #include "../Streaming/FFMpegDecoder.h"
 #include <Utils.hpp>
 #include <KeyboardControl.xaml.h>
@@ -153,7 +154,7 @@ void StreamPage::flyoutButton_Click(Platform::Object^ sender, Windows::UI::Xaml:
 
 void StreamPage::ActionsFlyout_Closed(Platform::Object^ sender, Platform::Object^ e)
 {
-	if(m_main != nullptr) m_main->SetFlyoutOpened(false);
+	if (m_main != nullptr) m_main->SetFlyoutOpened(false);
 }
 
 void StreamPage::toggleMouseButton_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e)
@@ -325,6 +326,80 @@ void StreamPage::toggleFramePacing_Click(Platform::Object^ sender, Windows::UI::
 	// thread safe atomic bool
 	bool isImmediate = Pacer::instance().getPacingImmediate();
 	Pacer::instance().setPacingImmediate(isImmediate ? false : true);
+}
+
+// Audio buffer slider
+
+void StreamPage::audioBufferSlider_Loaded(Platform::Object ^ sender, Windows::UI::Xaml::RoutedEventArgs ^) {
+	m_audioBufferSlider = safe_cast<Windows::UI::Xaml::Controls::Slider ^>(sender);
+
+	// Seed from the live value; ValueChanged fires during template load with
+	// the coerced default, which must not be pushed back into AudioPlayer.
+	m_audioBufferSliderReady = false;
+	m_audioBufferSlider->Value = AudioPlayer::instance().GetAudioBufferMs();
+	m_audioBufferSliderReady = true;
+}
+
+void StreamPage::audioBufferSlider_ValueChanged(Platform::Object ^ sender, Windows::UI::Xaml::Controls::Primitives::RangeBaseValueChangedEventArgs ^ args) {
+	if (!m_audioBufferSliderReady) {
+		return;
+	}
+
+	int audioBufferMs = static_cast<int>(args->NewValue);
+	AudioPlayer::instance().SetAudioBufferMs(audioBufferMs);
+}
+
+void StreamPage::audioBufferSliderItem_PreviewKeyDown(Platform::Object ^, Windows::UI::Xaml::Input::KeyRoutedEventArgs ^ args) {
+	if (m_audioBufferSlider == nullptr) {
+		return;
+	}
+
+	double change = 0;
+
+	switch (args->Key) {
+	case Windows::System::VirtualKey::Left:
+	case Windows::System::VirtualKey::GamepadDPadLeft:
+	case Windows::System::VirtualKey::GamepadLeftThumbstickLeft:
+		change = -10;
+		break;
+
+	case Windows::System::VirtualKey::Right:
+	case Windows::System::VirtualKey::GamepadDPadRight:
+	case Windows::System::VirtualKey::GamepadLeftThumbstickRight:
+		change = 10;
+		break;
+
+	default:
+		return;
+	}
+
+	double value = m_audioBufferSlider->Value + change;
+
+	if (value < m_audioBufferSlider->Minimum) {
+		value = m_audioBufferSlider->Minimum;
+	} else if (value > m_audioBufferSlider->Maximum) {
+		value = m_audioBufferSlider->Maximum;
+	}
+
+	m_audioBufferSlider->Value = value;
+	args->Handled = true;
+}
+
+// Glitch counter
+
+void StreamPage::audioGlitchText_Loaded(Platform::Object ^ sender, Windows::UI::Xaml::RoutedEventArgs ^) {
+	m_audioGlitchText = safe_cast<Windows::UI::Xaml::Controls::TextBlock ^>(sender);
+	UpdateAudioGlitchText();
+}
+
+void StreamPage::UpdateAudioGlitchText() {
+	if (m_audioGlitchText == nullptr) {
+		return;
+	}
+
+
+	m_audioGlitchText->Text = Utils::StringFromStdString(
+		"Glitch count: " + std::to_string(Stats::instance().GetAudioGlitchCount()));
 }
 
 void StreamPage::OnPropertyChanged(Platform::String^ propertyName)

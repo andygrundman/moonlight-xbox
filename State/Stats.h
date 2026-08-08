@@ -53,7 +53,10 @@ namespace moonlight_xbox_dx
 	class Stats
 	{
 	public:
-		Stats();
+		// Singleton
+		static Stats& instance();
+		void Reset();
+
 		bool ShouldUpdateDisplay(DX::StepTimer const& timer, bool isVisible, char* output, size_t length);
 
 		// submitters for various types of data
@@ -65,8 +68,15 @@ namespace moonlight_xbox_dx
 		void SubmitPresentPacing(double presentDisplayMs);
 		void SubmitRenderStats(double preWaitTimeMs, double renderTimeMs, double presentTimeMs, bool hitDeadline);
 		void SubmitGpuTime(float minGpuTimeMs, float maxGpuTimeMs, float avgGpuTimeMs);
+		void SubmitAudioGlitch();
+		uint32_t GetAudioGlitchCount();
+		void ResetAudioGlitchCount();
 
 	private:
+		Stats();
+		Stats(const Stats&) = delete;
+		Stats& operator=(const Stats&) = delete;
+
 		void addVideoStats(DX::StepTimer const& timer, VIDEO_STATS& src, VIDEO_STATS& dst);
 		void formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, char* output, size_t length);
 
@@ -82,5 +92,6 @@ namespace moonlight_xbox_dx
 		float                                m_minGpuTimeMs;
 		float                                m_maxGpuTimeMs;
 		float                                m_avgGpuTimeMs;
+		uint32_t                             m_audioGlitchCount;
 	};
 }
