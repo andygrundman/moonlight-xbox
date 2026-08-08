@@ -10,6 +10,7 @@
 #include "Utils.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 using namespace moonlight_xbox_dx;
 using namespace Concurrency;
@@ -397,6 +398,133 @@ static inline GamepadReading EmptyReading() {
 	return GamepadReading{};
 }
 
+namespace {
+	const double kDeadzone = 0.10;        // radial, in stick units
+	const double kSaturation = 0.95;      // magnitude treated as full deflection
+	const double kExponent = 3.0;         // response curve; higher = finer control near center
+	const double kLinearBlend = 0.06;     // see ResponseCurve()
+	const double kMaxSpeed = 2200.0;      // px/sec at full deflection, before sensitivity
+	const double kSmoothMs = 35.0;        // ease-in time constant for the stick magnitude
+	const double kPrecision = 0.2;        // velocity scale while the precision modifier is held
+	const double kMaxScrollRate = 2000.0; // scroll units/sec at full deflection (120 == one notch)
+	const double kScrollExponent = 2.0;
+	const double kScrollSendMs = 8.0; // don't emit scroll events faster than this
+	const double kMaxDtSec = 0.1;     // beyond this we assume a stall, not real motion
+
+	// Elapsed seconds since the previous integration, or 0 if this poll can't be trusted.
+	double PointerDt(int64_t now, int64_t &last) {
+		const int64_t previous = last;
+		last = now;
+		if (previous == 0) {
+			return 0.0; // first poll after entering mouse mode
+		}
+		const double dt = QpcToMs(now - previous) / 1000.0;
+		return (dt > 0.0 && dt <= kMaxDtSec) ? dt : 0.0;
+	}
+
+	// Rescales a raw magnitude so the response rises continuously from zero at the edge of
+	// the deadzone, rather than jumping straight to some minimum speed.
+	double NormalizeMagnitude(double mag) {
+		if (mag <= kDeadzone) {
+			return 0.0;
+		}
+		return std::min((mag - kDeadzone) / (kSaturation - kDeadzone), 1.0);
+	}
+
+	double ResponseCurve(double t, double exponent) {
+		return kLinearBlend * t + (1.0 - kLinearBlend) * std::pow(t, exponent);
+	}
+
+	// Splits an accumulator into the whole part to send and the remainder to keep.
+	short TakeWholePart(double &accum) {
+		const double whole = std::trunc(accum);
+		accum -= whole;
+		return (short)std::clamp(whole, -32768.0, 32767.0);
+	}
+} // namespace
+
+// Integrates the pointer for one poll. Returns false when there is nothing to send.
+static bool UpdatePointer(GamepadState &state, double stickX, double stickY,
+                          double sensitivity, double precisionScale,
+                          short &outX, short &outY) {
+	outX = outY = 0;
+
+	const double dt = PointerDt(QpcNow(), state.mouseLastQpc);
+	if (dt == 0.0) {
+		return false;
+	}
+
+	// Radial deadzone, so a diagonal push isn't sqrt(2) faster than a cardinal one.
+	const double mag = std::sqrt(stickX * stickX + stickY * stickY);
+	double target = 0.0, dirX = 0.0, dirY = 0.0;
+	if (mag > kDeadzone) {
+		target = NormalizeMagnitude(mag);
+		dirX = stickX / mag;
+		dirY = stickY / mag;
+	}
+
+	// Ease in to filter out thumb tremor near the deadzone, but snap to zero on release so
+	// the cursor lands where you let go instead of gliding past it.
+	if (target < state.mouseSmoothMag) {
+		state.mouseSmoothMag = target;
+	} else {
+		state.mouseSmoothMag += (target - state.mouseSmoothMag) * (1.0 - std::exp(-(dt * 1000.0) / kSmoothMs));
+	}
+
+	// Keep the remainder
+	if (state.mouseSmoothMag <= 0.0) {
+		return false;
+	}
+
+	const double speed = kMaxSpeed * sensitivity * precisionScale * ResponseCurve(state.mouseSmoothMag, kExponent);
+
+	state.mouseAccumX += dirX * speed * dt;
+	state.mouseAccumY += -dirY * speed * dt; // stick Y is up-positive, screen Y is down-positive
+
+	outX = TakeWholePart(state.mouseAccumX);
+	outY = TakeWholePart(state.mouseAccumY);
+	return (outX != 0 || outY != 0);
+}
+
+// Integrates both scroll axes for one poll. Returns false when there is nothing to send.
+static bool UpdateScroll(GamepadState &state, double stickX, double stickY,
+                         double sensitivity, short &outV, short &outH) {
+	outV = outH = 0;
+
+	const int64_t now = QpcNow();
+	const double dt = PointerDt(now, state.scrollLastQpc);
+	if (dt == 0.0) {
+		return false;
+	}
+
+	// Per-axis here rather than radial: vertical and horizontal scroll are independent
+	// wheels on the host, and treating them as one vector makes it hard to scroll straight.
+	const double rateV = NormalizeMagnitude(std::abs(stickY));
+	const double rateH = NormalizeMagnitude(std::abs(stickX));
+	if (rateV == 0.0 && rateH == 0.0) {
+		return false; // remainder is kept, same as the pointer
+	}
+
+	const double scale = kMaxScrollRate * sensitivity * dt;
+	if (rateV > 0.0) {
+		state.scrollAccumV += std::copysign(ResponseCurve(rateV, kScrollExponent) * scale, stickY);
+	}
+	if (rateH > 0.0) {
+		state.scrollAccumH += std::copysign(ResponseCurve(rateH, kScrollExponent) * scale, stickX);
+	}
+
+	// A real wheel emits a few dozen events/sec; without this the accumulator would happily
+	// push 500/sec down the control stream while the stick is fully deflected.
+	if (state.scrollLastSendQpc != 0 && QpcToMs(now - state.scrollLastSendQpc) < kScrollSendMs) {
+		return false;
+	}
+	state.scrollLastSendQpc = now;
+
+	outV = TakeWholePart(state.scrollAccumV);
+	outH = TakeWholePart(state.scrollAccumH);
+	return (outV != 0 || outH != 0);
+}
+
 // Process all input from the user before updating game state
 void moonlight_xbox_dxMain::ProcessInput() {
 	auto gamepads = Windows::Gaming::Input::Gamepad::Gamepads;
@@ -479,21 +607,18 @@ void moonlight_xbox_dxMain::ProcessInput() {
 			}
 			// Move with right stick
 			if (isPressed(reading.Buttons, GamepadButtons::LeftThumbstick)) {
-				moonlightClient->SendScroll((float)pow(reading.RightThumbstickY * multiplier * 2, 3));
-				moonlightClient->SendScrollH((float)pow(reading.RightThumbstickX * multiplier * 2, 3));
+				short scrollV, scrollH;
+				if (UpdateScroll(state, reading.RightThumbstickX, reading.RightThumbstickY, multiplier, scrollV, scrollH)) {
+					if (scrollV != 0) moonlightClient->SendScroll((float)scrollV);
+					if (scrollH != 0) moonlightClient->SendScrollH((float)scrollH);
+				}
 			} else {
-				// Move with right stick instead of the left one in KB mode
-				double x = reading.RightThumbstickX;
-				if (abs(x) < 0.1)
-					x = 0;
-				else
-					x = x + (x > 0 ? 1 : -1); // Add 1 to make sure < 0 values do not make everything broken
-				double y = reading.RightThumbstickY;
-				if (abs(y) < 0.1)
-					y = 0;
-				else
-					y = (y * -1) + (y > 0 ? -1 : 1); // Add 1 to make sure < 0 values do not make everything broken
-				moonlightClient->SendMousePosition((float)pow(x * multiplier, 3), (float)pow(y * multiplier, 3));
+				// Move with right stick instead of the left one in KB mode. LB/RB are already
+				// taken by the arrow keys here, so there's no precision modifier in this mode.
+				short mouseX, mouseY;
+				if (UpdatePointer(state, reading.RightThumbstickX, reading.RightThumbstickY, multiplier, 1.0, mouseX, mouseY)) {
+					moonlightClient->SendMousePosition((float)mouseX, (float)mouseY);
+				}
 			}
 			if (reading.LeftTrigger > 0.25 && state.previousReading.LeftTrigger < 0.25) {
 				moonlightClient->SendMousePressed(BUTTON_LEFT);
@@ -507,19 +632,14 @@ void moonlight_xbox_dxMain::ProcessInput() {
 			}
 		} else if (mouseMode) {
 			auto appState = GetApplicationState();
-			// Position
+			// Position. Hold RB to slow the cursor down for precise targeting -- the opposite
+			// hand from the pointer stick, so the modifier doesn't disturb your aim.
 			double multiplier = ((double)appState->MouseSensitivity) / ((double)4.0f);
-			double x = reading.LeftThumbstickX;
-			if (abs(x) < 0.1)
-				x = 0;
-			else
-				x = x + (x > 0 ? 1 : -1); // Add 1 to make sure < 0 values do not make everything broken
-			double y = reading.LeftThumbstickY;
-			if (abs(y) < 0.1)
-				y = 0;
-			else
-				y = (y * -1) + (y > 0 ? -1 : 1); // Add 1 to make sure < 0 values do not make everything broken
-			moonlightClient->SendMousePosition((float)pow(x * multiplier, 3), (float)pow(y * multiplier, 3));
+			double precision = isPressed(reading.Buttons, GamepadButtons::RightShoulder) ? kPrecision : 1.0;
+			short mouseX, mouseY;
+			if (UpdatePointer(state, reading.LeftThumbstickX, reading.LeftThumbstickY, multiplier, precision, mouseX, mouseY)) {
+				moonlightClient->SendMousePosition((float)mouseX, (float)mouseY);
+			}
 
 			// Left Click (A or LT)
 			if (PressedEdge(reading, prevReading, GamepadButtons::A) || (reading.LeftTrigger > 0.25 && state.previousReading.LeftTrigger < 0.25)) {
@@ -545,8 +665,11 @@ void moonlight_xbox_dxMain::ProcessInput() {
 				}
 			}
 			// Scroll
-			moonlightClient->SendScroll((float)pow(reading.RightThumbstickY * multiplier * 2, 3));
-			moonlightClient->SendScrollH((float)pow(reading.RightThumbstickX * multiplier * 2, 3));
+			short scrollV, scrollH;
+			if (UpdateScroll(state, reading.RightThumbstickX, reading.RightThumbstickY, multiplier, scrollV, scrollH)) {
+				if (scrollV != 0) moonlightClient->SendScroll((float)scrollV);
+				if (scrollH != 0) moonlightClient->SendScrollH((float)scrollH);
+			}
 			// Xbox/Guide Button (B)
 			if (PressedEdge(reading, prevReading, GamepadButtons::B)) {
 				moonlightClient->SendGuide(state.hostId, true);
