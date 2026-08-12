@@ -1,6 +1,6 @@
 {
   "name": "moonlight-xbox",
-  "builtin-baseline": "120deac3062162151622ca4860575a33844ba10b",
+  "builtin-baseline": "9e593bb18ea69cc5095e012465dcd675a822ed0d",
   "dependencies": [
     {
       "name": "ffmpeg",
@@ -23,7 +23,7 @@
   "overrides": [
     {
       "name": "ffmpeg",
-      "version": "7.1.1"
+      "version": "8.1.2#3"
     }
   ]
 }
