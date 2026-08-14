@@ -40,6 +40,16 @@ struct GamepadState {
 	short ltX, ltY, rtX, rtY;   // after a call to normalizeAxes() these are
 	unsigned char lTrig, rTrig; // populated with values expected by the protocol
 
+	// Mouse mode integrator state. The pointer and scroll velocities are computed in
+	// units/second and integrated against real elapsed time, so the sub-unit remainder
+	// has to survive across polls -- see UpdatePointer() in moonlight_xbox_dxMain.cpp.
+	double mouseAccumX = 0.0, mouseAccumY = 0.0;   // sub-pixel remainder not yet sent to the host
+	double mouseSmoothMag = 0.0;                   // low-passed stick magnitude
+	int64_t mouseLastQpc = 0;                      // timestamp of the last pointer integration
+	double scrollAccumV = 0.0, scrollAccumH = 0.0; // sub-unit scroll remainder
+	int64_t scrollLastQpc = 0;                     // timestamp of the last scroll integration
+	int64_t scrollLastSendQpc = 0;                 // timestamp of the last scroll event sent
+
 	static inline Windows::Gaming::Input::GamepadReading EmptyReading() {
 		return Windows::Gaming::Input::GamepadReading{};
 	}
@@ -69,10 +79,23 @@ struct GamepadState {
 		previousReading = EmptyReading();
 		ltX = ltY = rtX = rtY = 0;
 		lTrig = rTrig = 0;
+		ResetPointer();
 		combo.comboState = ComboState::None;
 		combo.viewPressed = false;
 		combo.menuPressed = false;
 		combo.startTime = 0;
+	}
+
+	// Drop any pending sub-unit motion and force the next poll to re-seed its timestamps.
+	// Entering mouse mode doesn't need to call this: the first poll after a gap longer than
+	// kMaxDtSec is discarded and re-seeds itself, so a stale dt can't fling the cursor.
+	void ResetPointer() {
+		mouseAccumX = mouseAccumY = 0.0;
+		mouseSmoothMag = 0.0;
+		mouseLastQpc = 0;
+		scrollAccumV = scrollAccumH = 0.0;
+		scrollLastQpc = 0;
+		scrollLastSendQpc = 0;
 	}
 
 	void SetGuideButtonDown(bool isDown) {
