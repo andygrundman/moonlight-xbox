@@ -70,7 +70,6 @@ DX::DeviceResources::DeviceResources() :
 	m_compositionScaleX(1.0f),
 	m_compositionScaleY(1.0f),
 	m_deviceNotify(nullptr),
-	m_stats(nullptr),
 	m_imguiRunning(false),
 	m_showImGui(false)
 {

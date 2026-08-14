@@ -89,6 +89,19 @@ void HostSettingsPage::OnNavigatedTo(Windows::UI::Xaml::Navigation::NavigationEv
 		}
 	}
 
+	// Audio Buffer options
+	AvailableAudioBuffers->Append("10 ms");
+	AvailableAudioBuffers->Append("20 ms");
+	AvailableAudioBuffers->Append("30 ms");
+	AvailableAudioBuffers->Append("40 ms");
+	AvailableAudioBuffers->Append("50 ms");
+	for (int i = 0; i < AvailableAudioBuffers->Size; i++) {
+		if (host->AudioBuffer == AvailableAudioBuffers->GetAt(i)) {
+			AudioBuffersComboBox->SelectedIndex = i;
+			break;
+		}
+	}
+
 	if (info.vendorId == GAMING_DEVICE_VENDOR_ID_MICROSOFT) {
 		// Old Xbox One can only use H264, remove from settings everything else
 		if (info.deviceId == GAMING_DEVICE_DEVICE_ID_XBOX_ONE) {

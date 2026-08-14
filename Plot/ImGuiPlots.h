@@ -22,6 +22,8 @@ class ImGuiPlots
 	void clearData();
 	void observeFloat(int plotId, float value);
 	float observeFloatReturnAvg(int plotId, float value);
+	float getAvg(int plotId);
+	void clearBuffer(int plotId);
 
 	Plot &get(int plotId)
 	{

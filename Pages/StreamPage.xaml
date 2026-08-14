@@ -75,6 +75,52 @@
                             </MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator></MenuFlyoutSeparator>
+
+                        <MenuFlyoutSubItem Text="Audio">
+                            <MenuFlyoutSubItem.Icon>
+                                <FontIcon Glyph="&#xF61F;" />
+                            </MenuFlyoutSubItem.Icon>
+                            <MenuFlyoutItem x:Name="audioBufferSliderItem" AllowFocusOnInteraction="True" IsTabStop="True" UseSystemFocusVisuals="False" PreviewKeyDown="audioBufferSliderItem_PreviewKeyDown">
+                                <MenuFlyoutItem.Template>
+                                    <ControlTemplate TargetType="MenuFlyoutItem">
+                                        <StackPanel Width="340" Padding="12,8" Spacing="4">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="Audio buffer" VerticalAlignment="Center" />
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding Value, ElementName=audioBufferSlider}" />
+                                                    <TextBlock Text=" ms" />
+                                                </StackPanel>
+                                            </Grid>
+                                            <Slider x:Name="audioBufferSlider" Minimum="10" Maximum="50" StepFrequency="10"
+                                                TickFrequency="10" TickPlacement="BottomRight" SnapsTo="StepValues" SmallChange="10" LargeChange="10"
+                                                IsTabStop="False" Loaded="audioBufferSlider_Loaded" ValueChanged="audioBufferSlider_ValueChanged" />
+                                            <Grid Margin="5,-2,5,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition />
+                                                    <ColumnDefinition />
+                                                    <ColumnDefinition />
+                                                    <ColumnDefinition />
+                                                    <ColumnDefinition />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="10ms" HorizontalAlignment="Left" />
+                                                <TextBlock Grid.Column="1" Text="20ms" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Column="2" Text="30ms" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Column="3" Text="40ms" HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Column="4" Text="50ms" HorizontalAlignment="Right" />
+                                            </Grid>
+                                            <TextBlock FontSize="12px" Text="Small buffer sizes are more likely to have audio glitches." VerticalAlignment="Center" />
+                                            <TextBlock x:Name="audioGlitchText" FontSize="12px" VerticalAlignment="Center" Loaded="audioGlitchText_Loaded" Text="Glitch count: 0" />
+                                        </StackPanel>
+                                    </ControlTemplate>
+                                </MenuFlyoutItem.Template>
+                            </MenuFlyoutItem>
+                        </MenuFlyoutSubItem>
+
+                        <MenuFlyoutSeparator></MenuFlyoutSeparator>
                         <MenuFlyoutItem x:Name="disonnectButton" Text="Disconnect" Click="disonnectButton_Click" AllowFocusOnInteraction="false" FocusVisualSecondaryThickness="0.5" >
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE72D;" />

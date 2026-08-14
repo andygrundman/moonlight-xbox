@@ -14,6 +14,15 @@ BandwidthTracker::BandwidthTracker(uint32_t windowSeconds, uint32_t bucketInterv
     buckets.resize(bucketCount);
 }
 
+void BandwidthTracker::Reset() {
+    std::lock_guard<std::mutex> lock(mtx);
+    auto now = steady_clock::now();
+    for (auto& bucket : buckets) {
+        bucket.start = now;
+        bucket.bytes = 0;
+    }
+}
+
 // Add bytes recorded at the current time.
 void BandwidthTracker::AddBytes(size_t bytes) {
     std::lock_guard<std::mutex> lock(mtx);

@@ -15,6 +15,7 @@ namespace moonlight_xbox_dx
 		property Platform::String^ audioConfig;
 		property Platform::String^ videoCodec;
 		property Platform::String^ framePacing;
+		property Platform::String^ audioBuffer;
 		property bool enableHDR;
 		property bool playAudioOnPC;
 		property bool enableVsync;

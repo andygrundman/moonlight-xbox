@@ -44,7 +44,7 @@ AppPage::AppPage()
 {
 	InitializeComponent();
 	Windows::UI::ViewManagement::ApplicationView::GetForCurrentView()->SetDesiredBoundsMode(Windows::UI::ViewManagement::ApplicationViewBoundsMode::UseVisible);
-	
+
 	this->Loaded += ref new Windows::UI::Xaml::RoutedEventHandler(this, &AppPage::OnLoaded);
 	this->Unloaded += ref new Windows::UI::Xaml::RoutedEventHandler(this, &AppPage::OnUnloaded);
 }
@@ -169,6 +169,7 @@ void AppPage::Connect(int appId) {
 	config->enableHDR = host->EnableHDR;
 	config->enableSOPS = host->EnableSOPS;
 	config->framePacing = host->FramePacing;
+	config->audioBuffer = host->AudioBuffer;
 	config->enableStats = host->EnableStats;
 	config->enableGraphs = host->EnableGraphs;
 	if (config->enableHDR) {

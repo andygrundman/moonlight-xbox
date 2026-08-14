@@ -13,6 +13,7 @@ AlignConsecutiveDeclarations: false
 AlignTrailingComments: true
 ConstructorInitializerAllOnOneLineOrOnePerLine: true
 BreakConstructorInitializers: BeforeColon
+NamespaceIndentation: All
 PackConstructorInitializers: Never
 
 # Don't move pch.h below other headers

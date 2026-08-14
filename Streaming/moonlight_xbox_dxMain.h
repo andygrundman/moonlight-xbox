@@ -55,8 +55,6 @@ namespace moonlight_xbox_dx
 		std::unique_ptr<LogRenderer>   m_LogRenderer;
 		std::unique_ptr<StatsRenderer> m_statsTextRenderer;
 
-		std::shared_ptr<Stats>         m_stats;
-
 		Windows::Foundation::IAsyncAction^ m_renderLoopWorker;
 		Windows::Foundation::IAsyncAction^ m_inputLoopWorker;
 		Concurrency::critical_section m_criticalSection;

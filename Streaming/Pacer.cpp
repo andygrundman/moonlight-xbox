@@ -278,7 +278,7 @@ bool Pacer::renderModeImmediate(std::shared_ptr<VideoRenderer> &sceneRenderer) {
 	if (m_CurrentFrame->opaque_ref) {
 		// Count time spent in FrameQueue
 		auto *data = reinterpret_cast<MLFrameData *>(m_CurrentFrame->opaque_ref->data);
-		m_DeviceResources->GetStats()->SubmitPacerTime(beforeRenderQpc - data->decodeEndQpc);
+		Stats::instance().SubmitPacerTime(beforeRenderQpc - data->decodeEndQpc);
 	}
 
 	// Keep m_CurrentFrame alive until next frame, it's used to calculate frametime
@@ -336,7 +336,7 @@ bool Pacer::renderModeDisplayLocked(std::shared_ptr<VideoRenderer> &sceneRendere
 	if (m_CurrentFrame->opaque_ref) {
 		// Count time spent in FrameQueue
 		auto *data = reinterpret_cast<MLFrameData *>(m_CurrentFrame->opaque_ref->data);
-		m_DeviceResources->GetStats()->SubmitPacerTime(beforeRenderQpc - data->decodeEndQpc);
+		Stats::instance().SubmitPacerTime(beforeRenderQpc - data->decodeEndQpc);
 	}
 
 	// Keep m_CurrentFrame alive in case we need to reuse it on the next present
@@ -382,12 +382,12 @@ void Pacer::submitFrame(AVFrame *frame) {
 
 	int dropCount = FrameQueue::instance().enqueue(frame);
 	if (dropCount) {
-		m_DeviceResources->GetStats()->SubmitDroppedFrame(1);
+		Stats::instance().SubmitDroppedFrame(dropCount);
 	}
 
 	ImGuiPlots::instance().observeFloat(PLOT_DROPPED_PACER, (float)dropCount);
 	float avgQueueSize = ImGuiPlots::instance().observeFloatReturnAvg(PLOT_QUEUED_FRAMES, (float)FrameQueue::instance().count());
-	m_DeviceResources->GetStats()->SubmitAvgQueueSize(avgQueueSize);
+	Stats::instance().SubmitAvgQueueSize(avgQueueSize);
 }
 
 // Misc helper functions

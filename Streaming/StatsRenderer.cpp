@@ -12,12 +12,11 @@ using namespace moonlight_xbox_dx;
 using namespace Microsoft::WRL;
 using namespace Windows::UI::Core;
 
-StatsRenderer::StatsRenderer(const std::shared_ptr<DX::DeviceResources> &deviceResources, const std::shared_ptr<Stats> &stats)
+StatsRenderer::StatsRenderer(const std::shared_ptr<DX::DeviceResources> &deviceResources)
     : m_console(std::make_unique<DX::TextConsole>()),
       m_deviceResources(deviceResources),
       m_mutex(),
-      m_visible(false),
-      m_stats(stats) {
+      m_visible(false) {
 	m_console->SetForegroundColor(Colors::Yellow);
 	// m_console->SetDebugOutput(true);
 
@@ -31,7 +30,7 @@ void StatsRenderer::Update(DX::StepTimer const &timer) {
 	char outputStr[1024]; // char is used so we can share more of the formatting code with moonlight-qt
 	wchar_t wideStr[2048];
 
-	if (m_stats->ShouldUpdateDisplay(timer, m_visible, outputStr, sizeof(outputStr))) {
+	if (Stats::instance().ShouldUpdateDisplay(timer, m_visible, outputStr, sizeof(outputStr))) {
 		size_t numChars = mbstowcs(wideStr, outputStr, 1024);
 		if (numChars != -1) {
 			m_console->Clear();
@@ -63,8 +62,9 @@ static inline float clampGetter(void *data, int idx) {
 
 void StatsRenderer::RenderGraphs() {
 	// we malloc a buffer for each stat only once and reuse it each frame
-	assert(PlotCount == 7);
-	static float *buffers[7] = {
+	assert(PlotCount == 8);
+	static float *buffers[8] = {
+	    (float *)malloc(sizeof(float) * 512),
 	    (float *)malloc(sizeof(float) * 512),
 	    (float *)malloc(sizeof(float) * 512),
 	    (float *)malloc(sizeof(float) * 512),
@@ -161,11 +161,9 @@ void StatsRenderer::RenderGraphs() {
 		draw_plot(row2[c], graphW, graphH);
 	}
 
-#if defined(_DEBUG)
 	// 3rd row for quickly graphing something if needed
-	ImGui::Dummy(ImVec2(1.0f, itemSpacingY));
-	draw_plot(PLOT_ETC, graphW, graphH);
-#endif
+	// ImGui::Dummy(ImVec2(1.0f, itemSpacingY));
+	// draw_plot(PLOT_ETC, graphW, graphH);
 
 	ImGui::End();
 }
@@ -189,22 +187,22 @@ void StatsRenderer::CreateWindowSizeDependentResources() {
 	int right = m_displayWidth / 3;
 	int bottom = 0;
 
-	// 13 lines of text
+	// 12 lines of text
 	if (m_displayHeight >= 2160) { // 24pt font
 		left = 20;
 		right = m_displayWidth / 2;
-		bottom = 483;
+		bottom = 446;
 	} else if (m_displayHeight >= 1440) { // 12pt font
 		left = 14;
-		bottom = 242;
+		bottom = 224;
 	} else {
 		left = 10;
-		bottom = 242;
+		bottom = 224;
 	}
 
 #if defined(_DEBUG)
-	// make room for 2 extra lines of stats
-	bottom += (m_displayHeight >= 2160) ? 70 : 35;
+	// make room for 4 extra lines of stats
+	bottom += (m_displayHeight >= 2160) ? 140 : 70;
 #endif
 
 	// The size of our text area (left, top, right, bottom)

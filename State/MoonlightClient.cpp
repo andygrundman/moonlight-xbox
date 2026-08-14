@@ -11,6 +11,7 @@ extern "C" {
 #include <Utils.hpp>
 #include <atomic>
 #include <cmath>
+#include <string>
 #include <gamingdeviceinformation.h>
 #include "Streaming\FFMpegDecoder.h"
 
@@ -288,7 +289,7 @@ int MoonlightClient::StartStreaming(std::shared_ptr<DX::DeviceResources> res, St
 		char message[2048];
 		sprintf(message, "gs_startapp failed with status code %d\n", a);
 		Utils::Log(message);
-		
+
 		if (gs_error) {
 			char errorMessage[2048];
 			sprintf(errorMessage, "%s\n", gs_error);
@@ -320,12 +321,19 @@ int MoonlightClient::StartStreaming(std::shared_ptr<DX::DeviceResources> res, St
 	AUDIO_RENDERER_CALLBACKS aCallbacks = AudioPlayer::getDecoder();
 
 	int k = LiStartConnection(&serverData.serverInfo, &config, &callbacks, &rCallbacks, &aCallbacks, NULL, 0, NULL, 0);
-
-	sprintf(message, "LiStartConnection %d\n", k);
-	Utils::Log(message);
-
 	if (k != 0) {
 		this->OnFailed(0, k, "Connection failed");
+	}
+
+	// The initial audio callback doesn't take any config, so set audio buffer size here
+	if (sConfig->audioBuffer != nullptr && !sConfig->audioBuffer->IsEmpty()) {
+		try {
+			int audioBuffer = std::stoi(sConfig->audioBuffer->Data()); // convert from "30 ms"
+			AudioPlayer::instance().SetAudioBufferMs(audioBuffer);
+		}
+		catch (const std::exception &) {
+			Utils::Log("Invalid audio buffer setting, keeping the default\n");
+		}
 	}
 
     return k;
@@ -340,7 +348,7 @@ void log_message(const char *fmt, ...) {
 	va_start(argp, fmt);
 	char message[2048];
 	vsprintf_s(message, fmt, argp);
-	
+
 	// Append a single '\n' only if the string doesn't already end with one.
 	size_t len = strlen(message);
 	if (len == 0 || message[len - 1] != '\n') {

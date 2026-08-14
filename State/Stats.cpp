@@ -6,13 +6,35 @@
 
 using namespace moonlight_xbox_dx;
 
+Stats& Stats::instance()
+{
+	static Stats inst;
+	return inst;
+}
+
 Stats::Stats() :
+	m_bwTracker(10, 250),
 	m_avgQueueSize(0.0),
 	m_avgMbpsSmoothed(0.0),
 	m_minGpuTimeMs(0.0f),
 	m_maxGpuTimeMs(0.0f),
-	m_avgGpuTimeMs(0.0f)
+	m_avgGpuTimeMs(0.0f),
+	m_audioGlitchCount(0)
 {
+	Reset();
+}
+
+void Stats::Reset()
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	m_bwTracker.Reset();
+	m_avgQueueSize = 1.0f;
+	m_avgMbpsSmoothed = 0.0;
+	m_minGpuTimeMs = 0.0f;
+	m_maxGpuTimeMs = 0.0f;
+	m_avgGpuTimeMs = 0.0f;
+	m_audioGlitchCount = 0;
+
 	ZeroMemory(&m_ActiveWndVideoStats, sizeof(VIDEO_STATS));
 	ZeroMemory(&m_LastWndVideoStats, sizeof(VIDEO_STATS));
 	ZeroMemory(&m_GlobalVideoStats, sizeof(VIDEO_STATS));
@@ -102,6 +124,21 @@ void Stats::SubmitVideoBytesAndReassemblyTime(uint32_t length, PDECODE_UNIT deco
 		ImGuiPlots::instance().observeFloat(PLOT_HOST_FRAMETIME, (float)(delta90k / 90.0f));
 	}
 	lastHostPts = (uint32_t)decodeUnit->rtpTimestamp;
+}
+
+void Stats::SubmitAudioGlitch() {
+	std::lock_guard<std::mutex> lock(m_mutex);
+	++m_audioGlitchCount;
+}
+
+uint32_t Stats::GetAudioGlitchCount() {
+	std::lock_guard<std::mutex> lock(m_mutex);
+	return m_audioGlitchCount;
+}
+
+void Stats::ResetAudioGlitchCount() {
+	std::lock_guard<std::mutex> lock(m_mutex);
+	m_audioGlitchCount = 0;
 }
 
 // Time in milliseconds we spent decoding one frame, it is added up to later be divided by decodedFrames
@@ -373,7 +410,7 @@ void Stats::formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, cha
 					   "Frames dropped due to network jitter: %.2f%%\n"
 					   "Average network latency: %s\n"
 					   "Average reassembly/decoding time: %.2f/%.2f ms\n"
-					   "Average frames in queue: %.1f\n"
+					   "Average frames in queue: %.1f, audio: %.2f ms\n"
 					   "Average frame queue/render/present: %.2f/%.2f/%.2f ms\n",
 					   stats.totalFrames ? (double)stats.networkDroppedFrames / stats.totalFrames * 100 : 0.0f,
 					   stats.totalFrames ? (double)stats.pacerDroppedFrames / stats.totalFrames * 100 : 0.0f,
@@ -381,6 +418,7 @@ void Stats::formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, cha
 					   stats.decodedFrames ? (double)stats.totalReassemblyTimeUs / 1000.0 / stats.decodedFrames : 0.0f,
 					   stats.decodedFrames ? (double)stats.totalDecodeTime / stats.decodedFrames : 0.0f,
 					   m_avgQueueSize,
+					   ImGuiPlots::instance().getAvg(PLOT_AUDIO_BUFFER_MS),
 					   stats.renderedFrames ? (double)stats.totalPacerTimeUs / 1000.0 / stats.renderedFrames : 0.0f,
 					   stats.renderedFrames ? (double)stats.totalRenderTimeUs / 1000.0 / stats.renderedFrames : 0.0f,
 					   stats.renderedFrames ? (double)stats.totalPresentTimeUs / 1000.0 / stats.renderedFrames : 0.0f);
@@ -400,8 +438,8 @@ void Stats::formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, cha
 					   length - offset,
 					   "------\n"
 					   "Missed present rate: %.2f%%\n"
-					   "PreWait/Render: %.2f/%.2f ms\n",
-					   "GPU render cost min/max/avg: %.2f/%.2f/%.2f ms\n"
+					   "PreWait/Render: %.2f/%.2f ms\n"
+					   "GPU render cost min/max/avg: %.2f/%.2f/%.2f ms\n",
 					   stats.hitDeadlines ? ((double)stats.missedDeadlines / (stats.missedDeadlines + stats.hitDeadlines)) * 100 : 0.0f,
 					   (double)stats.totalPreWaitTimeUs / 1000.0 / stats.renderedFrames,
 					   (double)stats.totalRenderTimeUs / 1000.0 / stats.renderedFrames,

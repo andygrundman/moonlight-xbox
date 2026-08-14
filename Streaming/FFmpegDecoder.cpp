@@ -302,7 +302,7 @@ namespace moonlight_xbox_dx {
 		}
 
 		// track stats for a variety of things we can track at the same time
-		m_deviceResources->GetStats()->SubmitVideoBytesAndReassemblyTime(length, decodeUnit, droppedFramesNetwork);
+		Stats::instance().SubmitVideoBytesAndReassemblyTime(length, decodeUnit, droppedFramesNetwork);
 
 		// ffmpeg_decode
 		AVPacket *pkt = av_packet_alloc();
@@ -355,7 +355,7 @@ namespace moonlight_xbox_dx {
 
 		double decodeTimeMs = QpcToMs(decodeEnd.QuadPart - decodeStart.QuadPart);
 		if (decodeEnd.QuadPart > decodeStart.QuadPart) {
-			m_deviceResources->GetStats()->SubmitDecodeMs(decodeTimeMs);
+			Stats::instance().SubmitDecodeMs(decodeTimeMs);
 		}
 
 		// Not the best way to handle this. BUT IT DOES FIX XBOX ONE TEARING!!!!
