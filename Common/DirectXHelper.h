@@ -109,7 +109,7 @@ namespace DX
 		return floorf(dips * dpi / dipsPerInch + 0.5f); // Round to nearest integer.
 	}
 
-#if defined(_DEBUG)
+#if defined(_DEBUG) || defined(MOONLIGHT_D3D_DEBUG_LAYER)
 	// Check for SDK Layer support.
 	inline bool SdkLayersAvailable()
 	{

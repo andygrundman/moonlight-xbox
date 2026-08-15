@@ -59,7 +59,8 @@ namespace moonlight_xbox_dx {
 		void Log(const std::string_view& msg) {
 			try {
 				std::wstring string = GetCurrentTimestamp() + NarrowToWideString(msg);
-        OutputDebugString(string.c_str());
+				OutputDebugString(string.c_str());
+				TracyMessage(msg.data(), msg.size());
 				{
 					std::unique_lock<std::mutex> lk(logMutex);
 					if (logLines.size() == LOG_LINES) {

@@ -10,6 +10,7 @@
 #include <Utils.hpp>
 #include <KeyboardControl.xaml.h>
 #include "../Common/ModalDialog.xaml.h"
+#include "../Utils/TracyBootstrap.h"
 
 using namespace moonlight_xbox_dx;
 
@@ -39,6 +40,9 @@ StreamPage::StreamPage():
 {
 	InitializeComponent();
 
+	// Init Tracy, all Tracy functions are noops if not enabled.
+	TracyBootstrap::Initialize();
+
 	DisplayInformation^ currentDisplayInformation = DisplayInformation::GetForCurrentView();
 	NavigationCacheMode = Windows::UI::Xaml::Navigation::NavigationCacheMode::Enabled;
 	swapChainPanel->SizeChanged +=
@@ -46,7 +50,9 @@ StreamPage::StreamPage():
 	m_deviceResources = std::make_shared<DX::DeviceResources>();
 }
 
-
+StreamPage::~StreamPage()
+{
+}
 
 void StreamPage::OnBackRequested(Platform::Object^ e,Windows::UI::Core::BackRequestedEventArgs^ args)
 {
@@ -128,10 +134,6 @@ void StreamPage::Page_Unloaded(Platform::Object ^ sender, Windows::UI::Xaml::Rou
 
 	Windows::UI::Core::CoreWindow::GetForCurrentThread()->KeyDown -= keyDownHandler;
 	Windows::UI::Core::CoreWindow::GetForCurrentThread()->KeyUp -= keyUpHandler;
-}
-
-StreamPage::~StreamPage()
-{
 }
 
 void StreamPage::OnSwapChainPanelSizeChanged(Object^ sender, Windows::UI::Xaml::SizeChangedEventArgs^ e)

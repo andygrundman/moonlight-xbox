@@ -33,9 +33,23 @@
 #include <imgui_impl_uwp.h>
 #include <imgui_impl_dx11.h>
 
-#ifdef _DEBUG
+#define MOONLIGHT_D3D_DEBUG_LAYER 1
+
+// MOONLIGHT_D3D_DEBUG_LAYER turns the D3D/DXGI debug layers on outside of _DEBUG builds.
+// It costs performance, so it is a diagnostic switch rather than something to leave on in a
+// profiling build.
+#if defined(_DEBUG) || defined(MOONLIGHT_D3D_DEBUG_LAYER)
 #include <dxgidebug.h>
+#include <d3d11sdklayers.h>
 #endif
+
+// noop unless TRACY_ENABLE is defined.
+#include <tracy/Tracy.hpp>
+#include <tracy/TracyD3D11.hpp>
+
+// Special C++17 inline global variable for Tracy's D3D context, so it can be used from
+// multiple files. Owned by the render thread: created and destroyed in StartRenderLoop().
+inline TracyD3D11Ctx g_tracyCtx = nullptr;
 
 // Helper for dispatching code to the UI thread
 #define DISPATCH_UI(LAMBDA)                                            \
