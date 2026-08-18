@@ -33,6 +33,8 @@
 #include <curl/curl.h>
 #ifdef _WIN32
 #define PATH_MAX 4096
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #include "winrt.h"
 #else
 #include <uuid/uuid.h>
@@ -55,6 +57,15 @@ static char unique_id[UNIQUEID_CHARS+1];
 static X509 *cert;
 static char cert_hex[4096];
 static EVP_PKEY *privateKey;
+
+// gs_init runs concurrently (host polling, mDNS discovery, WoL polling each
+// connect from their own threads) but its init phase mutates process-wide
+// state: the statics above and the curl blobs in http.c.
+#ifdef _WIN32
+static SRWLOCK init_lock = SRWLOCK_INIT;
+#define INIT_LOCK() AcquireSRWLockExclusive(&init_lock)
+#define INIT_UNLOCK() ReleaseSRWLockExclusive(&init_lock)
+#endif
 
 const char* gs_error;
 
@@ -95,6 +106,10 @@ static int mkdirtree(const char* directory) {
 }
 
 static int load_unique_id(const char* keyDirectory) {
+  // Pairing/applist/launch read unique_id from other threads, so load it once
+  if (unique_id[0] != 0)
+    return GS_OK;
+
   char uniqueFilePath[PATH_MAX];
   snprintf(uniqueFilePath, PATH_MAX, "%s/%s", keyDirectory, UNIQUE_FILE_NAME);
 
@@ -117,6 +132,10 @@ static int load_unique_id(const char* keyDirectory) {
 }
 
 static int load_cert(const char* keyDirectory) {
+  // cert and privateKey are shared with other threads, load them once
+  if (cert != NULL && privateKey != NULL)
+    return GS_OK;
+
   char certificateFilePath[PATH_MAX];
   snprintf(certificateFilePath, PATH_MAX, "%s/%s", keyDirectory, CERTIFICATE_FILE_NAME);
 
@@ -142,8 +161,15 @@ static int load_cert(const char* keyDirectory) {
     return GS_FAILED;
   }
 
+  if (cert != NULL) {
+    // Retry after a failed key load below; the old cert was never published
+    // to other threads because load_cert did not return GS_OK.
+    X509_free(cert);
+    cert = NULL;
+  }
   if (!(cert = PEM_read_X509(fd, NULL, NULL, NULL))) {
     gs_error = "Error loading cert into memory";
+    fclose(fd);
     return GS_FAILED;
   }
 
@@ -167,6 +193,11 @@ static int load_cert(const char* keyDirectory) {
 
   PEM_read_PrivateKey(fd, &privateKey, NULL, NULL);
   fclose(fd);
+
+  if (privateKey == NULL) {
+    gs_error = "Error loading key into memory";
+    return GS_FAILED;
+  }
 
   return GS_OK;
 }
@@ -283,7 +314,7 @@ static int load_serverinfo(PSERVER_DATA server, bool https) {
 
   if (httpsPortText != NULL)
     free(httpsPortText);
-  
+
   http_cleanup(curl);
 
   return ret;
@@ -712,7 +743,7 @@ int gs_applist(PSERVER_DATA server, PAPP_LIST *list) {
     ret = GS_ERROR;
   else if (xml_applist(data->memory, data->size, list) != GS_OK)
     ret = GS_INVALID;
-  
+
   http_cleanup(curl);
   http_free_data(data);
   return ret;
@@ -792,7 +823,7 @@ int gs_start_app(PSERVER_DATA server, STREAM_CONFIGURATION *config, int appId, b
   cleanup:
   if (result != NULL)
     free(result);
-  
+
   http_cleanup(curl);
   http_free_data(data);
   return ret;
@@ -835,14 +866,20 @@ int gs_quit_app(PSERVER_DATA server) {
 }
 
 int gs_init(PSERVER_DATA server, char *address, unsigned short httpPort, const char *keyDirectory, int log_level, bool unsupported) {
+  INIT_LOCK();
   mkdirtree(keyDirectory);
-  if (load_unique_id(keyDirectory) != GS_OK)
+  if (load_unique_id(keyDirectory) != GS_OK) {
+    INIT_UNLOCK();
     return GS_FAILED;
+  }
 
-  if (load_cert(keyDirectory))
+  if (load_cert(keyDirectory)) {
+    INIT_UNLOCK();
     return GS_FAILED;
+  }
 
   http_init(keyDirectory, log_level);
+  INIT_UNLOCK();
 
   LiInitializeServerInformation(&server->serverInfo);
   server->serverInfo.address = address;
@@ -854,7 +891,7 @@ int gs_init(PSERVER_DATA server, char *address, unsigned short httpPort, const c
 
 int gs_appasset(PSERVER_DATA server, const char *keyDirectory, int appId) {
     int ret = GS_OK;
-    char url[4096];    
+    char url[4096];
     char* result = NULL;
 
     snprintf(url, sizeof(url), "https://%s:%u/appasset?appid=%d&AssetType=2&AssetIdx=0", server->serverInfo.address, server->httpsPort, appId);

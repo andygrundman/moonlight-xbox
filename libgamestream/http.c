@@ -24,13 +24,26 @@
 #include <string.h>
 #include <curl/curl.h>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 static const char *pCertFile = "./client.pem";
 static const char *pKeyFile = "./key.pem";
 
 static bool debug;
 static struct curl_blob certBlob, keyBlob;
 
-void http_free_certblobs(void) {
+// The blobs are freed and reassigned by http_init while get_curl_handle may
+// be reading them from another thread (host polling, pairing, app fetches).
+#ifdef _WIN32
+static SRWLOCK blob_lock = SRWLOCK_INIT;
+#define BLOB_LOCK() AcquireSRWLockExclusive(&blob_lock)
+#define BLOB_UNLOCK() ReleaseSRWLockExclusive(&blob_lock)
+#endif
+
+static void free_certblobs_unlocked(void) {
     if (certBlob.data) {
         free((void*)certBlob.data);
         certBlob.data = NULL;
@@ -43,6 +56,12 @@ void http_free_certblobs(void) {
         keyBlob.len = 0;
         keyBlob.flags = 0;
     }
+}
+
+void http_free_certblobs(void) {
+    BLOB_LOCK();
+    free_certblobs_unlocked();
+    BLOB_UNLOCK();
 }
 
 
@@ -74,24 +93,49 @@ CURL* get_curl_handle() {
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     curl_easy_setopt(curl, CURLOPT_SSLENGINE_DEFAULT, 1L);
     curl_easy_setopt(curl, CURLOPT_SSLCERTTYPE, "PEM");
+    curl_easy_setopt(curl, CURLOPT_SSLKEYTYPE, "PEM");
+    // CURL_BLOB_COPY means curl copies the blob during setopt, so the
+    // buffers only need to stay alive while the lock is held.
+    BLOB_LOCK();
     if (certBlob.data != NULL) {
         curl_easy_setopt(curl, CURLOPT_SSLCERT_BLOB, &certBlob);
     }
-    curl_easy_setopt(curl, CURLOPT_SSLKEYTYPE, "PEM");
     if (keyBlob.data != NULL) {
         curl_easy_setopt(curl, CURLOPT_SSLKEY_BLOB, &keyBlob);
     }
+    BLOB_UNLOCK();
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_SESSIONID_CACHE, 0L);
     return curl;
 }
 
+static void* read_file_blob(const char* path, size_t* outLen) {
+  FILE* fp = fopen(path, "rb");
+  if (fp == NULL) return NULL;
+  if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return NULL; }
+  long size = ftell(fp);
+  if (size <= 0) { fclose(fp); return NULL; }
+  rewind(fp);
+  void* buffer = malloc((size_t)size);
+  if (buffer == NULL) { fclose(fp); return NULL; }
+  size_t read = fread(buffer, 1, (size_t)size, fp);
+  fclose(fp);
+  if (read != (size_t)size) { free(buffer); return NULL; }
+  *outLen = read;
+  return buffer;
+}
+
 int http_init(const char* keyDirectory, int logLevel) {
   debug = logLevel >= 2;
 
-  // If we already have blobs allocated, free them first so repeated init is safe
-  http_free_certblobs();
+  // The blobs are loaded once and then left alone: reloading would free
+  // buffers another thread's get_curl_handle may be copying.
+  BLOB_LOCK();
+  bool loaded = certBlob.data != NULL && keyBlob.data != NULL;
+  BLOB_UNLOCK();
+  if (loaded)
+    return GS_OK;
 
   char certificateFilePath[4096];
   snprintf(certificateFilePath, sizeof(certificateFilePath), "%s%s", keyDirectory, CERTIFICATE_FILE_NAME);
@@ -99,40 +143,23 @@ int http_init(const char* keyDirectory, int logLevel) {
   char keyFilePath[4096];
   snprintf(keyFilePath, sizeof(keyFilePath), "%s%s", keyDirectory, KEY_FILE_NAME);
 
-  // Read certificate file
-  FILE* fp = fopen(certificateFilePath, "rb");
-  if (fp == NULL) return 1;
-  if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return 1; }
-  long size = ftell(fp);
-  if (size <= 0) { fclose(fp); return 1; }
-  rewind(fp);
-  void* certificateBuffer = malloc((size_t)size);
-  if (certificateBuffer == NULL) { fclose(fp); return 1; }
-  size_t read = fread(certificateBuffer, 1, (size_t)size, fp);
-  fclose(fp);
-  if (read != (size_t)size) { free(certificateBuffer); return 1; }
-  certBlob.data = certificateBuffer;
-  certBlob.len = read;
-  certBlob.flags = CURL_BLOB_COPY;
+  size_t certLen = 0;
+  void* certificateBuffer = read_file_blob(certificateFilePath, &certLen);
+  if (certificateBuffer == NULL) return 1;
 
-  // Read key file
-  fp = fopen(keyFilePath, "rb");
-  if (fp == NULL) {
-    http_free_certblobs();
-    return 1;
-  }
-  if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); http_free_certblobs(); return 1; }
-  size = ftell(fp);
-  if (size <= 0) { fclose(fp); http_free_certblobs(); return 1; }
-  rewind(fp);
-  void* keyBuffer = malloc((size_t)size);
-  if (keyBuffer == NULL) { fclose(fp); http_free_certblobs(); return 1; }
-  read = fread(keyBuffer, 1, (size_t)size, fp);
-  fclose(fp);
-  if (read != (size_t)size) { free(keyBuffer); http_free_certblobs(); return 1; }
+  size_t keyLen = 0;
+  void* keyBuffer = read_file_blob(keyFilePath, &keyLen);
+  if (keyBuffer == NULL) { free(certificateBuffer); return 1; }
+
+  BLOB_LOCK();
+  free_certblobs_unlocked();
+  certBlob.data = certificateBuffer;
+  certBlob.len = certLen;
+  certBlob.flags = CURL_BLOB_COPY;
   keyBlob.data = keyBuffer;
-  keyBlob.len = read;
+  keyBlob.len = keyLen;
   keyBlob.flags = CURL_BLOB_COPY;
+  BLOB_UNLOCK();
 
   return GS_OK;
 }
