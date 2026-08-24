@@ -160,7 +160,8 @@ namespace moonlight_xbox_dx {
 		avcodec_register_all();
 #endif
 
-		av_log_set_level(AV_LOG_ERROR);
+		// Increase log level until the first frame is decoded
+		av_log_set_level(AV_LOG_INFO);
 
 		av_log_set_callback(&ffmpeg_log_callback);
 #pragma warning(suppress : 4996)
@@ -185,6 +186,7 @@ namespace moonlight_xbox_dx {
 			return -1;
 		}
 		decoder_ctx->opaque = this;
+		decoder_ctx->extra_hw_frames = 5;
 
 		AVBufferRef* hw_device_ctx = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
 		device_ctx = reinterpret_cast<AVHWDeviceContext*>(hw_device_ctx->data);
@@ -368,6 +370,11 @@ namespace moonlight_xbox_dx {
 		// 		SleepUntilQpc(QpcNow() + MsToQpc(remainingMs));
 		// 	}
 		// }
+
+		// Restore default log level after a successful decode
+		if (av_log_get_level() > AV_LOG_WARNING) {
+			av_log_set_level(AV_LOG_WARNING);
+		}
 
 		return DR_OK;
 	}
