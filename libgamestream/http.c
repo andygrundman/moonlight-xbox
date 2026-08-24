@@ -83,8 +83,7 @@ static size_t _write_curl(void *contents, size_t size, size_t nmemb, void *userp
 
 static size_t _write_curl_binary(void* contents, size_t size, size_t nmemb, void* userp)
 {
-    size_t written = fwrite(contents, size, nmemb, userp);
-    return written;
+  return fwrite(contents, size, nmemb, userp) * size;
 }
 
 CURL* get_curl_handle() {
@@ -164,13 +163,23 @@ int http_init(const char* keyDirectory, int logLevel) {
   return GS_OK;
 }
 
+static void http_log(const char* format, const char* msg) {
+  char buffer[4096];
+  snprintf(buffer, sizeof(buffer), format, msg);
+#ifdef _WIN32
+  OutputDebugStringA(buffer);
+#else
+  printf(buffer);
+#endif
+}
+
 int http_request(CURL* curl, char* url, PHTTP_DATA data) {
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
   curl_easy_setopt(curl, CURLOPT_URL, url);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, _write_curl);
 
   if (debug)
-    printf("Request %s\n", url);
+    http_log("http_request: %s\n", url);
 
   if (data->size > 0) {
     free(data->memory);
@@ -189,8 +198,8 @@ int http_request(CURL* curl, char* url, PHTTP_DATA data) {
     return GS_OUT_OF_MEMORY;
   }
 
-  if (debug)
-    printf("Response:\n%s\n\n", data->memory);
+  // if (debug)
+  //   http_log("Response:\n%s\n\n", data->memory);
 
   return GS_OK;
 }
@@ -201,7 +210,7 @@ int http_request_binary(CURL *curl, char* url, FILE *data) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, _write_curl_binary);
 
     if (debug)
-        printf("Request %s\n", url);
+        http_log("http_request_binary: %s\n", url);
 
     CURLcode res = curl_easy_perform(curl);
 

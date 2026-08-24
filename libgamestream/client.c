@@ -35,8 +35,10 @@
 #define PATH_MAX 4096
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <sys/utime.h>
 #include "winrt.h"
 #else
+#include <utime.h>
 #include <uuid/uuid.h>
 #endif // !_WIN32
 #include <openssl/sha.h>
@@ -885,27 +887,198 @@ int gs_init(PSERVER_DATA server, char *address, unsigned short httpPort, const c
   server->serverInfo.address = address;
   server->unsupported = unsupported;
   server->httpPort = httpPort ? httpPort : 47989;
-  server->httpsPort = 0; /* Populated by load_server_status() */
+  server->httpsPort = server->httpPort - 5;
   return load_server_status(server);
 }
 
-int gs_appasset(PSERVER_DATA server, const char *keyDirectory, int appId) {
-    int ret = GS_OK;
-    char url[4096];
-    char* result = NULL;
+static bool set_file_mtime(const char *path, curl_off_t remoteTime) {
+  if (remoteTime < 0)
+    return false;
 
-    snprintf(url, sizeof(url), "https://%s:%u/appasset?appid=%d&AssetType=2&AssetIdx=0", server->serverInfo.address, server->httpsPort, appId);
-    char uniqueFilePath[PATH_MAX];
-    snprintf(uniqueFilePath, PATH_MAX, "%s%d.png", keyDirectory, appId);
-    FILE* fd = fopen(uniqueFilePath, "wb");
-    CURL* curl = get_curl_handle();
-    if ((ret = http_request_binary(curl, url, fd)) != GS_OK)
-        goto cleanup;
-    fclose(fd);
+#ifdef _WIN32
+  __time64_t timestamp = (__time64_t)remoteTime;
+  if ((curl_off_t)timestamp != remoteTime)
+    return false;
+
+  struct __utimbuf64 times;
+  times.actime = timestamp;
+  times.modtime = timestamp;
+
+  return _utime64(path, &times) == 0;
+#else
+  time_t timestamp = (time_t)remoteTime;
+  if ((curl_off_t)timestamp != remoteTime)
+    return false;
+
+  struct utimbuf times;
+  times.actime = timestamp;
+  times.modtime = timestamp;
+
+  return utime(path, &times) == 0;
+#endif
+}
+
+int gs_appasset(PSERVER_DATA server, const char *keyDirectory, int appId) {
+  int ret = GS_OK;
+  char* result = NULL;
+  int length;
+  long responseCode = 0;
+  curl_off_t remoteFileTime = -1;
+
+  char url[4096];
+  char finalPath[PATH_MAX];
+  char tempPath[PATH_MAX];
+  char uuid_str[UUID_STRLEN];
+  uuid_t uuid;
+
+  FILE *fd = NULL;
+  CURL *curl = NULL;
+  bool tempCreated = false;
+  bool hasCachedAsset = false;
+  struct stat cacheStat;
+
+  if (server == NULL || server->serverInfo.address == NULL ||
+      keyDirectory == NULL || appId < 0) {
+    return GS_INVALID;
+  }
+
+  uuid_generate_random(&uuid);
+  uuid_unparse(&uuid, uuid_str);
+
+  length = snprintf(url, sizeof(url), "https://%s:%u/appasset?appid=%d&AssetType=2&AssetIdx=0",
+                    server->serverInfo.address, server->httpsPort, appId);
+  if (length < 0 || (size_t)length >= sizeof(url)) {
+    return GS_INVALID;
+  }
+
+  size_t directoryLength = strlen(keyDirectory);
+  const char *separator = directoryLength > 0
+                            && keyDirectory[directoryLength - 1] != '/'
+                            && keyDirectory[directoryLength - 1] != '\\'
+                          ? "/"
+                          : "";
+
+  length = snprintf(finalPath, sizeof(finalPath), "%s%s%d.png", keyDirectory,
+                    separator, appId);
+  if (length < 0 || (size_t)length >= sizeof(finalPath)) {
+    return GS_INVALID;
+  }
+
+  if (stat(finalPath, &cacheStat) == 0 && cacheStat.st_size > 0) {
+    hasCachedAsset = true;
+  }
+
+  length = snprintf(tempPath, sizeof(tempPath), "%s.tmp-%s", finalPath, uuid_str);
+  if (length < 0 || (size_t)length >= sizeof(tempPath)) {
+    return GS_INVALID;
+  }
+
+  fd = fopen(tempPath, "wb");
+  if (fd == NULL) {
+    return GS_IO_ERROR;
+  }
+  tempCreated = true;
+
+  curl = get_curl_handle();
+  if (curl == NULL) {
+    ret = GS_OUT_OF_MEMORY;
+    goto cleanup;
+  }
+
+  CURLcode curlResult = curl_easy_setopt(curl, CURLOPT_FILETIME, 1L);
+  if (curlResult != CURLE_OK) {
+    gs_error = curl_easy_strerror(curlResult);
+    ret = GS_FAILED;
+    goto cleanup;
+  }
+
+  if (hasCachedAsset) {
+    // If-Modified-Since, not supported by Sunshine as of Aug 2026 but we'll behave
+    // like a proper cache client and be future proof.
+    curlResult = curl_easy_setopt(curl, CURLOPT_TIMECONDITION, (long)CURL_TIMECOND_IFMODSINCE);
+    if (curlResult != CURLE_OK) {
+      gs_error = curl_easy_strerror(curlResult);
+      ret = GS_FAILED;
+      goto cleanup;
+    }
+
+    curlResult = curl_easy_setopt(curl, CURLOPT_TIMEVALUE_LARGE, (curl_off_t)cacheStat.st_mtime);
+    if (curlResult != CURLE_OK) {
+      gs_error = curl_easy_strerror(curlResult);
+      ret = GS_FAILED;
+      goto cleanup;
+    }
+  }
+
+  ret = http_request_binary(curl, url, fd);
+  if (ret != GS_OK) {
+    goto cleanup;
+  }
+
+  if (curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode) != CURLE_OK) {
+    ret = GS_FAILED;
+    goto cleanup;
+  }
+
+  if (fclose(fd) != 0) {
+    fd = NULL;
+    ret = GS_IO_ERROR;
+    goto cleanup;
+  }
+  fd = NULL;
+
+  if (responseCode == 304) {
+    ret = hasCachedAsset ? GS_OK : GS_FAILED;
+    goto cleanup;
+  }
+
+  if (responseCode != 200) {
+    ret = GS_FAILED;
+    goto cleanup;
+  }
+
+  if (curl_easy_getinfo(curl, CURLINFO_FILETIME_T, &remoteFileTime) != CURLE_OK) {
+    remoteFileTime = -1;
+  }
+
+#ifdef _WIN32
+  if (!MoveFileExA(tempPath, finalPath, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    ret = GS_IO_ERROR;
+    goto cleanup;
+  }
+#else
+  if (rename(tempPath, finalPath) != 0) {
+    ret = GS_IO_ERROR;
+    goto cleanup;
+  }
+#endif
+
+  tempCreated = false;
+
+  /*
+  * A value of -1 means that the server did not provide a valid
+  * Last-Modified header. In that case, retain the local download time.
+  */
+  if (remoteFileTime >= 0 && !set_file_mtime(finalPath, remoteFileTime)) {
+    gs_error = "Failed to set cached asset modification time";
+    ret = GS_IO_ERROR;
+    goto cleanup;
+  }
 
 cleanup:
-    if (result != NULL)
-        free(result);
+  if (fd != NULL) {
+    if (fclose(fd) != 0 && ret == GS_OK) {
+      ret = GS_IO_ERROR;
+    }
+  }
+
+  if (tempCreated) {
+    remove(tempPath);
+  }
+
+  if (curl != NULL) {
     http_cleanup(curl);
-    return ret;
+  }
+
+  return ret;
 }
