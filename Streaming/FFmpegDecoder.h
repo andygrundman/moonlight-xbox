@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <queue>
 #include "../Common/StepTimer.h"
@@ -22,6 +23,8 @@ typedef struct MLFrameData {
 	int64_t presentVsyncQpc;  // hard vsync deadline
 } MLFrameData;
 
+using CaptureBuffer = std::shared_ptr<const std::vector<uint8_t>>;
+
 namespace moonlight_xbox_dx {
 
 class FFMpegDecoder {
@@ -35,6 +38,8 @@ class FFMpegDecoder {
 	int SubmitDecodeUnit(PDECODE_UNIT decodeUnit);
 	static FFMpegDecoder *getInstance();
 	static DECODER_RENDERER_CALLBACKS getDecoder();
+	void ToggleCapture();
+	void SetCapture(bool wanted);
 
 	// Called from the get_format callback to set up a frame pool with
 	// D3D11_BIND_SHADER_RESOURCE so the renderer can sample decoder surfaces
@@ -69,6 +74,9 @@ class FFMpegDecoder {
 	FFMpegDecoder();
 	FFMpegDecoder(const FFMpegDecoder &) = delete;
 	FFMpegDecoder &operator=(const FFMpegDecoder &) = delete;
+	void QueueCapture(CaptureBuffer frame, CaptureBuffer cachedIdr, int frameType);
+	void WriteCapture(const uint8_t* data, size_t length, int frameType, const CaptureBuffer& cachedIdr);
+	void DrainCaptureQueue();
 
 	const AVCodec *decoder;
 	AVCodecContext *decoder_ctx;
@@ -79,5 +87,14 @@ class FFMpegDecoder {
 	std::shared_ptr<DX::DeviceResources> m_deviceResources;
 	int m_LastFrameNumber;
 	int64_t m_StreamEpochQpc;
+
+	std::mutex m_CaptureQueueMutex;
+	Concurrency::task<void> m_CaptureTail;
+	CaptureBuffer m_CachedIDR;
+	bool m_CaptureQueueStopping = false;
+	bool m_CaptureWroteIDR = false;
+	std::atomic<bool> m_CaptureEnabled{false};
+	std::atomic<size_t> m_CaptureWrittenBytes{0};
+	std::string m_CaptureFilenamePrefix;
 };
 } // namespace moonlight_xbox_dx

@@ -3,6 +3,11 @@
 #include "../Plot/ImGuiPlots.h"
 #include "StatsRenderer.h"
 
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+
 #include <Common\DirectXHelper.h>
 #include <d3d11_1.h>
 #include "Utils.hpp"
@@ -21,6 +26,7 @@ extern "C" {
 using namespace moonlight_xbox_dx;
 
 #define INITIAL_DECODER_BUFFER_SIZE (256 * 1024)
+#define CAPTURE_LIMIT               (1024 * 1024 * 1024)
 
 static bool ensure_buf_size(unsigned char **buf, int *buf_size, int required_size)
 {
@@ -55,7 +61,10 @@ namespace moonlight_xbox_dx {
 		ffmpeg_buffer(nullptr),
 		ffmpeg_buffer_size(0),
 		m_deviceResources(nullptr),
-		m_LastFrameNumber(0) {
+		m_LastFrameNumber(0),
+		m_CaptureTail(Concurrency::task_from_result()),
+		m_CaptureQueueStopping(false),
+		m_CaptureFilenamePrefix("") {
 	}
 
 	void lock_context(void *user) {
@@ -245,6 +254,7 @@ namespace moonlight_xbox_dx {
 		m_LastFrameNumber = 0;
 
 		Pacer::instance().deinit();
+		DrainCaptureQueue();
 
 		Utils::Log("FFMpegDecoder::Cleanup\n");
 	}
@@ -305,6 +315,26 @@ namespace moonlight_xbox_dx {
 
 		// track stats for a variety of things we can track at the same time
 		Stats::instance().SubmitVideoBytesAndReassemblyTime(length, decodeUnit, droppedFramesNetwork);
+
+		// Debug hook for saving out the bitstream to disk for later analysis
+		// Dev Mode gets an additional quick menu option to toggle capture.
+		if (Windows::ApplicationModel::Package::Current->IsDevelopmentMode) {
+			CaptureBuffer frameCopy;
+
+			if (decodeUnit->frameType == FRAME_TYPE_IDR) {
+				frameCopy = std::make_shared<std::vector<uint8_t>>(ffmpeg_buffer, ffmpeg_buffer + length);
+				m_CachedIDR = frameCopy;
+			}
+
+			if (m_CaptureEnabled.load()) {
+				if (!frameCopy) {
+					frameCopy = std::make_shared<std::vector<uint8_t>>(ffmpeg_buffer, ffmpeg_buffer + length);
+				}
+
+				CaptureBuffer cachedIdr = m_CachedIDR;
+				QueueCapture(std::move(frameCopy), std::move(cachedIdr), decodeUnit->frameType);
+			}
+		}
 
 		// ffmpeg_decode
 		AVPacket *pkt = av_packet_alloc();
@@ -401,5 +431,169 @@ namespace moonlight_xbox_dx {
 		decoder_callbacks_sdl.capabilities = CAPABILITY_DIRECT_SUBMIT | CAPABILITY_INTRA_REFRESH;
 		//decoder_callbacks_sdl.capabilities = CAPABILITY_DIRECT_SUBMIT | CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC;
 		return decoder_callbacks_sdl;
+	}
+}
+
+void FFMpegDecoder::QueueCapture(CaptureBuffer frame, CaptureBuffer cachedIdr, int frameType) {
+    std::lock_guard<std::mutex> lock(m_CaptureQueueMutex);
+
+    if (m_CaptureQueueStopping) {
+        return;
+    }
+
+    m_CaptureTail = m_CaptureTail.then(
+        [this, frame = std::move(frame), cachedIdr = std::move(cachedIdr), frameType](Concurrency::task<void> previous)
+        {
+            // Observe any unexpected failure from the preceding task
+            try {
+                previous.get();
+            }
+            catch (const std::exception& e) {
+                Utils::Logf("Previous capture task failed: %s\n", e.what());
+            }
+
+            try {
+                WriteCapture(frame->data(), frame->size(), frameType, cachedIdr);
+            }
+            catch (const std::exception& e) {
+                Utils::Logf("WriteCapture failed: %s\n", e.what());
+            }
+        }
+	);
+}
+
+void FFMpegDecoder::DrainCaptureQueue() {
+    Concurrency::task<void> tail;
+    {
+        std::lock_guard<std::mutex> lock(m_CaptureQueueMutex);
+        m_CaptureQueueStopping = true;
+        tail = m_CaptureTail;
+    }
+
+    try {
+        tail.get();
+    }
+    catch (const std::exception& e) {
+        Utils::Logf("Capture queue shutdown failed: %s\n", e.what());
+    }
+}
+
+// Runs on a task thread. One file per IDR.
+void FFMpegDecoder::WriteCapture(const uint8_t* data, size_t length, int frameType, const CaptureBuffer& cachedIdr) {
+    namespace fs = std::filesystem;
+
+    static const fs::path folder = []{
+        Platform::String^ path = Windows::Storage::ApplicationData::Current->LocalFolder->Path;
+        if (path == nullptr || path->Length() == 0) {
+            return fs::path{};
+        }
+        return fs::path(path->Data());
+    }();
+
+    if (folder.empty()) {
+        Utils::Log("WriteCapture: could not resolve LocalState path\n");
+        return;
+    }
+
+    // The filename uses the time of the first frame.
+    if (m_CaptureFilenamePrefix.empty() || frameType == FRAME_TYPE_IDR) {
+        const std::time_t now = std::time(nullptr);
+        std::tm localTime{};
+
+        if (localtime_s(&localTime, &now) != 0) {
+            Utils::Log("WriteCapture: could not determine local time\n");
+            return;
+        }
+
+        std::ostringstream prefix;
+        prefix << std::put_time(&localTime, "%Y-%m-%d-%H%M%S");
+        m_CaptureFilenamePrefix = prefix.str();
+		m_CaptureWrittenBytes.store(0);
+    }
+
+    std::ostringstream filename;
+    filename
+        << m_CaptureFilenamePrefix
+        << "-Moonlight_Xbox_"
+        << width << 'x' << height
+        << '.'
+        << ((videoFormat & VIDEO_FORMAT_MASK_H265) ? "hevc" : "h264");
+
+    const fs::path capturePath = folder / filename.str();
+    const std::string displayPath = capturePath.string();
+
+    std::ofstream file(capturePath, std::ios::binary | std::ios::app);
+    if (!file.is_open()) {
+        Utils::Logf("WriteCapture: could not open %s for writing\n", displayPath.c_str());
+        return;
+    }
+
+    const auto writeBytes = [&](const uint8_t* bytes, size_t byteCount) -> bool {
+        if (byteCount == 0) {
+            return true;
+        }
+
+        file.write(reinterpret_cast<const char*>(bytes), static_cast<std::streamsize>(byteCount));
+        if (!file) {
+            Utils::Logf("WriteCapture: failed writing %zu bytes to %s\n", byteCount, displayPath.c_str());
+            return false;
+        }
+
+        return true;
+    };
+
+	// Don't double-write if the first frame is itself an IDR.
+	if (frameType == FRAME_TYPE_IDR) {
+		m_CaptureWroteIDR = true;
+	}
+
+	if (!m_CaptureWroteIDR) {
+		if (!cachedIdr) {
+			Utils::Log("WriteCapture: capture started before an IDR was available\n");
+			return;
+		}
+
+		if (!writeBytes(cachedIdr->data(), cachedIdr->size())) {
+			return;
+		}
+
+		m_CaptureWroteIDR = true;
+	}
+
+	if (!writeBytes(data, length)) {
+		return;
+	}
+
+    file.close();
+    if (!file) {
+        Utils::Logf("WriteCapture: failed closing %s\n", displayPath.c_str());
+        return;
+    }
+
+	size_t count = m_CaptureWrittenBytes.fetch_add(length);
+
+	if (count >= CAPTURE_LIMIT) {
+		Utils::Logf("WriteCapture: 1GB capture limit reached for %s\n", displayPath.c_str());
+		SetCapture(false);
+	}
+}
+
+void FFMpegDecoder::ToggleCapture() {
+	bool current = m_CaptureEnabled.load();
+	SetCapture(!current);
+}
+
+void FFMpegDecoder::SetCapture(bool wanted) {
+	bool current = m_CaptureEnabled.load();
+	if (current != wanted) {
+		m_CaptureEnabled.store(wanted);
+		m_CaptureWrittenBytes.store(0);
+
+		if (!wanted) {
+			Utils::Log("Capture saved to LocalAppData/Moonlight/LocalState\n");
+		}
+		else {
+			Utils::Log("Capture started\n");
+		}
 	}
 }

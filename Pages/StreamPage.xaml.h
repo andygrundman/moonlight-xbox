@@ -31,6 +31,16 @@ namespace moonlight_xbox_dx
 		bool ShouldRefreshGamepads();
 		void RequestRefreshGamepads();
 
+		property bool CaptureMode {
+			bool get() { return m_captureMode; }
+			void set(bool value) {
+				if (m_captureMode != value) {
+					m_captureMode = value;
+					OnPropertyChanged("CaptureMode");
+				}
+			}
+	    }
+
 		property bool MouseMode {
 			bool get() { return m_mouseMode; }
 			void set(bool value) {
@@ -157,6 +167,8 @@ namespace moonlight_xbox_dx
 		void toggleHDR_WinAltB_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void resetDecoder_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
 		void toggleFramePacing_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void toggleCapture_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
+		void SetCaptureMode(bool wanted);
 
 		Windows::UI::Xaml::Controls::Slider^ m_audioBufferSlider;
 		bool m_audioBufferSliderReady = false;
@@ -173,6 +185,7 @@ namespace moonlight_xbox_dx
 		void OnGamepadAdded(Platform::Object^, Windows::Gaming::Input::Gamepad^ args);
 		void OnGamepadRemoved(Platform::Object^, Windows::Gaming::Input::Gamepad^ args);
 
+		bool m_captureMode = false;
         bool m_mouseMode = false;
 	    bool m_showLogs = false;
 	    bool m_showStats = false;

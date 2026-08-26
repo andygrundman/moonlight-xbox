@@ -61,6 +61,10 @@ void StreamPage::Page_Loaded(Platform::Object ^ sender, Windows::UI::Xaml::Route
 	this->m_progressView->Visibility = Windows::UI::Xaml::Visibility::Visible;
 	this->m_progressRing->IsActive = true;
 
+	if (Windows::ApplicationModel::Package::Current->IsDevelopmentMode) {
+		toggleCapture->Visibility = Windows::UI::Xaml::Visibility::Visible;
+	}
+
 	auto navigation = Windows::UI::Core::SystemNavigationManager::GetForCurrentView();
 	m_back_cookie = navigation->BackRequested += ref new EventHandler<BackRequestedEventArgs ^>(this, &StreamPage::OnBackRequested);
 
@@ -210,6 +214,7 @@ void StreamPage::OnNavigatedTo(Windows::UI::Xaml::Navigation::NavigationEventArg
 
 	if (configuration == nullptr)return;
 
+	SetCaptureMode(false);
 	SetMouseMode(false);
 	SetShowLogs(false);
 	SetShowStats(configuration->enableStats);
@@ -326,6 +331,17 @@ void StreamPage::toggleFramePacing_Click(Platform::Object^ sender, Windows::UI::
 	// thread safe atomic bool
 	bool isImmediate = Pacer::instance().getPacingImmediate();
 	Pacer::instance().setPacingImmediate(isImmediate ? false : true);
+}
+
+void StreamPage::toggleCapture_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e)
+{
+	SetCaptureMode(!this->CaptureMode);
+}
+
+void StreamPage::SetCaptureMode(bool wanted)
+{
+	this->CaptureMode = wanted;
+	FFMpegDecoder::instance().SetCapture(wanted);
 }
 
 // Audio buffer slider
