@@ -61,7 +61,7 @@ void StreamPage::Page_Loaded(Platform::Object ^ sender, Windows::UI::Xaml::Route
 	this->m_progressView->Visibility = Windows::UI::Xaml::Visibility::Visible;
 	this->m_progressRing->IsActive = true;
 
-	if (Windows::ApplicationModel::Package::Current->IsDevelopmentMode) {
+	if (Utils::ShowDevTools()) {
 		toggleCapture->Visibility = Windows::UI::Xaml::Visibility::Visible;
 	}
 

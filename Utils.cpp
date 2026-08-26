@@ -159,5 +159,19 @@ namespace moonlight_xbox_dx {
 
 			return result;
 		}
+
+		bool ShowDevTools() {
+			// Allow Frame Capture with Andy's build
+			if (Windows::ApplicationModel::Package::Current->DisplayName == "Moonlight UWP (AndyG)") {
+				return true;
+			}
+
+			// I think this check for Dev Mode only works when the app is deployed from Visual Studio
+			if (Windows::ApplicationModel::Package::Current->IsDevelopmentMode) {
+				return true;
+			}
+
+			return false;
+		}
 	}
 }

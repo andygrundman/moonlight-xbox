@@ -318,7 +318,7 @@ namespace moonlight_xbox_dx {
 
 		// Debug hook for saving out the bitstream to disk for later analysis
 		// Dev Mode gets an additional quick menu option to toggle capture.
-		if (Windows::ApplicationModel::Package::Current->IsDevelopmentMode) {
+		if (Utils::ShowDevTools()) {
 			CaptureBuffer frameCopy;
 
 			if (decodeUnit->frameType == FRAME_TYPE_IDR) {

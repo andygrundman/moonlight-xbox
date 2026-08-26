@@ -19,5 +19,8 @@ namespace moonlight_xbox_dx {
 		Platform::String^ StringFromStdString(std::string st);
 		std::string PlatformStringToStdString(Platform::String^ input);
 		std::string WideToNarrowString(const std::wstring_view& str);
-		std::wstring NarrowToWideString(const std::string_view& str);	}
+		std::wstring NarrowToWideString(const std::string_view& str);
+
+		bool ShowDevTools();
+	}
 }
