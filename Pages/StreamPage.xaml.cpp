@@ -151,6 +151,9 @@ void StreamPage::OnSwapChainPanelSizeChanged(Object^ sender, Windows::UI::Xaml::
 
 void StreamPage::flyoutButton_Click(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e)
 {
+	// Capture stops itself when it hits the size limit, so resync the menu text.
+	this->CaptureMode = FFMpegDecoder::instance().IsCaptureActive();
+
 	Windows::UI::Xaml::Controls::Flyout::ShowAttachedFlyout((FrameworkElement^)sender);
 	m_main->SetFlyoutOpened(true);
 }

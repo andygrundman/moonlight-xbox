@@ -3,10 +3,13 @@
 #include "../Plot/ImGuiPlots.h"
 #include "StatsRenderer.h"
 
+#include <chrono>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
+#include <system_error>
 
 #include <Common\DirectXHelper.h>
 #include <d3d11_1.h>
@@ -18,6 +21,7 @@ extern "C" {
 #include "Limelight.h"
 #include <third_party\h264bitstream\h264_stream.h>
 #include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
 #include <libavutil/hwcontext_d3d11va.h>
 #include <libavutil/time.h>
@@ -27,6 +31,7 @@ using namespace moonlight_xbox_dx;
 
 #define INITIAL_DECODER_BUFFER_SIZE (256 * 1024)
 #define CAPTURE_LIMIT               (1024 * 1024 * 1024)
+#define CAPTURE_AVIO_BUFFER_SIZE    (64 * 1024)
 
 static bool ensure_buf_size(unsigned char **buf, int *buf_size, int required_size)
 {
@@ -62,9 +67,7 @@ namespace moonlight_xbox_dx {
 		ffmpeg_buffer_size(0),
 		m_deviceResources(nullptr),
 		m_LastFrameNumber(0),
-		m_CaptureTail(Concurrency::task_from_result()),
-		m_CaptureQueueStopping(false),
-		m_CaptureFilenamePrefix("") {
+		m_CaptureTail(Concurrency::task_from_result()) {
 	}
 
 	void lock_context(void *user) {
@@ -316,24 +319,12 @@ namespace moonlight_xbox_dx {
 		// track stats for a variety of things we can track at the same time
 		Stats::instance().SubmitVideoBytesAndReassemblyTime(length, decodeUnit, droppedFramesNetwork);
 
-		// Debug hook for saving out the bitstream to disk for later analysis
-		// Dev Mode gets an additional quick menu option to toggle capture.
-		if (Utils::ShowDevTools()) {
-			CaptureBuffer frameCopy;
-
-			if (decodeUnit->frameType == FRAME_TYPE_IDR) {
-				frameCopy = std::make_shared<std::vector<uint8_t>>(ffmpeg_buffer, ffmpeg_buffer + length);
-				m_CachedIDR = frameCopy;
-			}
-
-			if (m_CaptureEnabled.load()) {
-				if (!frameCopy) {
-					frameCopy = std::make_shared<std::vector<uint8_t>>(ffmpeg_buffer, ffmpeg_buffer + length);
-				}
-
-				CaptureBuffer cachedIdr = m_CachedIDR;
-				QueueCapture(std::move(frameCopy), std::move(cachedIdr), decodeUnit->frameType);
-			}
+		// Debug hook for saving out the bitstream to disk for later analysis.
+		// Dev Mode gets an additional quick menu option to toggle capture when
+		// Utils::ShowDevTools() is false.
+		if (m_CaptureState.load(std::memory_order_relaxed) != CaptureState::Idle) {
+			QueueCaptureFrame(ffmpeg_buffer, length, decodeUnit->rtpTimestamp,
+			                  decodeUnit->frameType == FRAME_TYPE_IDR);
 		}
 
 		// ffmpeg_decode
@@ -434,166 +425,401 @@ namespace moonlight_xbox_dx {
 	}
 }
 
-void FFMpegDecoder::QueueCapture(CaptureBuffer frame, CaptureBuffer cachedIdr, int frameType) {
-    std::lock_guard<std::mutex> lock(m_CaptureQueueMutex);
+// ---------------------------------------------------------------------------
+// Frame capture
+//
+// The decode thread copies each access unit into an AVPacket and hands it to a
+// serialized task chain. That chain owns the mpegts muxer and does all of the
+// file I/O, so nothing blocking ever lands on the decode thread.
+// ---------------------------------------------------------------------------
 
-    if (m_CaptureQueueStopping) {
-        return;
-    }
+// Called from the capture task thread when the capture can't continue (open
+// failed, a write failed, or we hit the size limit). Stops the decode thread
+// from queueing any more frames.
+void FFMpegDecoder::StopRecordingFromWriter() {
+	std::lock_guard<std::mutex> lock(m_CaptureQueueMutex);
+	CaptureState expected = CaptureState::Recording;
+	m_CaptureState.compare_exchange_strong(expected, CaptureState::Idle);
+}
 
-    m_CaptureTail = m_CaptureTail.then(
-        [this, frame = std::move(frame), cachedIdr = std::move(cachedIdr), frameType](Concurrency::task<void> previous)
-        {
-            // Observe any unexpected failure from the preceding task
-            try {
-                previous.get();
-            }
-            catch (const std::exception& e) {
-                Utils::Logf("Previous capture task failed: %s\n", e.what());
-            }
+// Caller must hold m_CaptureQueueMutex.
+void FFMpegDecoder::EnqueueCaptureTask(std::function<void()> work) {
+	m_CaptureTail = m_CaptureTail.then(
+		[work = std::move(work)](Concurrency::task<void> previous) {
+			// Observe any unexpected failure from the preceding task
+			try {
+				previous.get();
+			}
+			catch (const std::exception& e) {
+				Utils::Logf("Previous capture task failed: %s\n", e.what());
+			}
 
-            try {
-                WriteCapture(frame->data(), frame->size(), frameType, cachedIdr);
-            }
-            catch (const std::exception& e) {
-                Utils::Logf("WriteCapture failed: %s\n", e.what());
-            }
-        }
+			try {
+				work();
+			}
+			catch (const std::exception& e) {
+				Utils::Logf("Capture task failed: %s\n", e.what());
+			}
+		}
 	);
 }
 
-void FFMpegDecoder::DrainCaptureQueue() {
-    Concurrency::task<void> tail;
-    {
-        std::lock_guard<std::mutex> lock(m_CaptureQueueMutex);
-        m_CaptureQueueStopping = true;
-        tail = m_CaptureTail;
-    }
+// Called on the decode thread for every frame while capture is armed or recording.
+void FFMpegDecoder::QueueCaptureFrame(const uint8_t* data, size_t length, uint32_t rtpTimestamp, bool isKeyFrame) {
+	std::lock_guard<std::mutex> lock(m_CaptureQueueMutex);
 
-    try {
-        tail.get();
-    }
-    catch (const std::exception& e) {
-        Utils::Logf("Capture queue shutdown failed: %s\n", e.what());
-    }
-}
-
-// Runs on a task thread. One file per IDR.
-void FFMpegDecoder::WriteCapture(const uint8_t* data, size_t length, int frameType, const CaptureBuffer& cachedIdr) {
-    namespace fs = std::filesystem;
-
-    static const fs::path folder = []{
-        Platform::String^ path = Windows::Storage::ApplicationData::Current->LocalFolder->Path;
-        if (path == nullptr || path->Length() == 0) {
-            return fs::path{};
-        }
-        return fs::path(path->Data());
-    }();
-
-    if (folder.empty()) {
-        Utils::Log("WriteCapture: could not resolve LocalState path\n");
-        return;
-    }
-
-    // The filename uses the time of the first frame.
-    if (m_CaptureFilenamePrefix.empty() || frameType == FRAME_TYPE_IDR) {
-        const std::time_t now = std::time(nullptr);
-        std::tm localTime{};
-
-        if (localtime_s(&localTime, &now) != 0) {
-            Utils::Log("WriteCapture: could not determine local time\n");
-            return;
-        }
-
-        std::ostringstream prefix;
-        prefix << std::put_time(&localTime, "%Y-%m-%d-%H%M%S");
-        m_CaptureFilenamePrefix = prefix.str();
-		m_CaptureWrittenBytes.store(0);
-    }
-
-    std::ostringstream filename;
-    filename
-        << m_CaptureFilenamePrefix
-        << "-Moonlight_Xbox_"
-        << width << 'x' << height
-        << '.'
-        << ((videoFormat & VIDEO_FORMAT_MASK_H265) ? "hevc" : "h264");
-
-    const fs::path capturePath = folder / filename.str();
-    const std::string displayPath = capturePath.string();
-
-    std::ofstream file(capturePath, std::ios::binary | std::ios::app);
-    if (!file.is_open()) {
-        Utils::Logf("WriteCapture: could not open %s for writing\n", displayPath.c_str());
-        return;
-    }
-
-    const auto writeBytes = [&](const uint8_t* bytes, size_t byteCount) -> bool {
-        if (byteCount == 0) {
-            return true;
-        }
-
-        file.write(reinterpret_cast<const char*>(bytes), static_cast<std::streamsize>(byteCount));
-        if (!file) {
-            Utils::Logf("WriteCapture: failed writing %zu bytes to %s\n", byteCount, displayPath.c_str());
-            return false;
-        }
-
-        return true;
-    };
-
-	// Don't double-write if the first frame is itself an IDR.
-	if (frameType == FRAME_TYPE_IDR) {
-		m_CaptureWroteIDR = true;
-	}
-
-	if (!m_CaptureWroteIDR) {
-		if (!cachedIdr) {
-			Utils::Log("WriteCapture: capture started before an IDR was available\n");
-			return;
-		}
-
-		if (!writeBytes(cachedIdr->data(), cachedIdr->size())) {
-			return;
-		}
-
-		m_CaptureWroteIDR = true;
-	}
-
-	if (!writeBytes(data, length)) {
+	CaptureState state = m_CaptureState.load();
+	if (m_CaptureQueueStopping || state == CaptureState::Idle) {
 		return;
 	}
 
-    file.close();
-    if (!file) {
-        Utils::Logf("WriteCapture: failed closing %s\n", displayPath.c_str());
-        return;
-    }
+	bool opening = false;
+	if (state == CaptureState::WaitingForIdr) {
+		// Drop everything until the IDR we asked for lands, so the file starts
+		// with parameter sets and a fully refreshed picture.
+		if (!isKeyFrame) {
+			return;
+		}
 
-	size_t count = m_CaptureWrittenBytes.fetch_add(length);
+		m_CaptureState.store(CaptureState::Recording);
+		opening = true;
+	}
 
-	if (count >= CAPTURE_LIMIT) {
-		Utils::Logf("WriteCapture: 1GB capture limit reached for %s\n", displayPath.c_str());
-		SetCapture(false);
+	// av_new_packet gives us a refcounted, padded buffer, so the muxer can point
+	// straight at it later without another copy.
+	AVPacket* raw = av_packet_alloc();
+	if (raw == nullptr) {
+		return;
+	}
+	if (av_new_packet(raw, (int)length) < 0) {
+		av_packet_free(&raw);
+		Utils::Logf("Capture: could not allocate a %zu byte packet\n", length);
+		return;
+	}
+	memcpy(raw->data, data, length);
+
+	CapturePacket packet(raw, [](AVPacket* p) { av_packet_free(&p); });
+
+	if (opening) {
+		EnqueueCaptureTask([this] {
+			if (!CaptureOpen()) {
+				StopRecordingFromWriter();
+			}
+		});
+	}
+
+	EnqueueCaptureTask([this, packet = std::move(packet), rtpTimestamp, isKeyFrame] {
+		CaptureWriteFrame(packet, rtpTimestamp, isKeyFrame);
+	});
+}
+
+void FFMpegDecoder::DrainCaptureQueue() {
+	Concurrency::task<void> tail;
+	{
+		std::lock_guard<std::mutex> lock(m_CaptureQueueMutex);
+		m_CaptureQueueStopping = true;
+		if (m_CaptureState.exchange(CaptureState::Idle) == CaptureState::Recording) {
+			EnqueueCaptureTask([this] { CaptureClose(); });
+		}
+		tail = m_CaptureTail;
+	}
+
+	try {
+		tail.get();
+	}
+	catch (const std::exception& e) {
+		Utils::Logf("Capture queue shutdown failed: %s\n", e.what());
+	}
+
+	// The decoder is a singleton reused across streams, so reset the chain and
+	// let the next session capture again.
+	std::lock_guard<std::mutex> lock(m_CaptureQueueMutex);
+	m_CaptureQueueStopping = false;
+	m_CaptureTail = Concurrency::task_from_result();
+}
+
+// ffmpeg writer
+int FFMpegDecoder::CaptureAvioWrite(void* opaque, const uint8_t* buf, int size) {
+	auto* me = reinterpret_cast<FFMpegDecoder*>(opaque);
+	if (size <= 0) {
+		return 0;
+	}
+
+	me->m_CaptureFile.write(reinterpret_cast<const char*>(buf), size);
+	if (!me->m_CaptureFile) {
+		Utils::Logf("Capture: failed writing %d bytes to %s\n", size, me->m_CapturePath.c_str());
+		return AVERROR(EIO);
+	}
+
+	me->m_CaptureBytesWritten += size;
+	return size;
+}
+
+// Runs on the capture task thread. One file per capture session.
+bool FFMpegDecoder::CaptureOpen() {
+	namespace fs = std::filesystem;
+
+	// Shouldn't happen, but never leak a half-open session.
+	CaptureAbort();
+
+	Platform::String^ developmentPath = L"D:\\DevelopmentFiles";
+	Platform::String^ backupPath = Windows::Storage::ApplicationData::Current->LocalFolder->Path;
+	if (backupPath == nullptr || backupPath->Length() == 0) {
+		Utils::Log("Capture: could not resolve the LocalState path\n");
+		return false;
+	}
+
+	const std::time_t now = std::time(nullptr);
+	std::tm localTime{};
+
+	if (localtime_s(&localTime, &now) != 0) {
+		Utils::Log("Capture: could not determine the local time\n");
+		return false;
+	}
+
+	std::ostringstream filename;
+	filename
+		<< std::put_time(&localTime, "%Y-%m-%d-%H%M%S")
+		<< "-Moonlight_Xbox_"
+		<< width << 'x' << height
+		<< ".ts";
+
+	if (m_CaptureFile.is_open()) {
+		m_CaptureFile.close();
+	}
+
+	auto tryOpenCapture = [&](Platform::String^ basePath) -> bool {
+		if (basePath == nullptr || basePath->Length() == 0) {
+			return false;
+		}
+
+		const fs::path candidate = fs::path(basePath->Data()) / filename.str();
+
+		// A failed open sets the stream's fail bit, so clear it before retrying.
+		m_CaptureFile.clear();
+		m_CaptureFile.open(candidate, std::ios::binary | std::ios::trunc);
+
+		if (!m_CaptureFile.is_open()) {
+			Utils::Logf("Capture: path is unavailable or not writable: %s\n", candidate.string().c_str());
+			m_CaptureFile.clear();
+			return false;
+		}
+
+		m_CapturePath = candidate.string();
+		return true;
+	};
+
+	// Prefer DevelopmentFiles, then fall back to LocalState.
+	if (!tryOpenCapture(developmentPath) &&
+		!tryOpenCapture(backupPath)) {
+		Utils::Log("Capture: no writable capture location is available\n");
+		CaptureAbort();
+		return false;
+	}
+
+	char ffmpegError[256];
+	int err = avformat_alloc_output_context2(&m_CaptureFormatCtx, nullptr, "mpegts", nullptr);
+	if (err < 0 || m_CaptureFormatCtx == nullptr) {
+		av_strerror(err, ffmpegError, sizeof(ffmpegError));
+		Utils::Logf("Capture: no mpegts muxer available: %s\n", ffmpegError);
+		CaptureAbort();
+		return false;
+	}
+
+	auto* avioBuffer = (unsigned char*)av_malloc(CAPTURE_AVIO_BUFFER_SIZE);
+	if (avioBuffer == nullptr) {
+		Utils::Log("Capture: could not allocate the AVIO buffer\n");
+		CaptureAbort();
+		return false;
+	}
+
+	m_CaptureAvioCtx = avio_alloc_context(avioBuffer, CAPTURE_AVIO_BUFFER_SIZE, 1, this,
+	                                      nullptr, CaptureAvioWrite, nullptr);
+	if (m_CaptureAvioCtx == nullptr) {
+		av_free(avioBuffer);
+		Utils::Log("Capture: could not allocate the AVIO context\n");
+		CaptureAbort();
+		return false;
+	}
+	m_CaptureFormatCtx->pb = m_CaptureAvioCtx;
+	m_CaptureFormatCtx->flags |= AVFMT_FLAG_CUSTOM_IO;
+
+	m_CaptureStream = avformat_new_stream(m_CaptureFormatCtx, nullptr);
+	if (m_CaptureStream == nullptr) {
+		Utils::Log("Capture: could not allocate the output stream\n");
+		CaptureAbort();
+		return false;
+	}
+
+	AVCodecParameters* par = m_CaptureStream->codecpar;
+	par->codec_type = AVMEDIA_TYPE_VIDEO;
+	par->codec_id = (videoFormat & VIDEO_FORMAT_MASK_H265) ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264;
+	par->codec_tag = 0;
+	par->width = width;
+	par->height = height;
+	par->format = (videoFormat & VIDEO_FORMAT_MASK_10BIT) ? AV_PIX_FMT_YUV420P10LE : AV_PIX_FMT_YUV420P;
+
+	m_CaptureStream->time_base = AVRational{ 1, 90000 };
+	m_CaptureStream->avg_frame_rate = AVRational{ fps, 1 };
+
+	m_CaptureBytesWritten = 0;
+	m_CapturePts = 0;
+	m_CaptureLastRtp = 0;
+	m_CaptureHavePts = false;
+
+	err = avformat_write_header(m_CaptureFormatCtx, nullptr);
+	if (err < 0) {
+		av_strerror(err, ffmpegError, sizeof(ffmpegError));
+		Utils::Logf("Capture: avformat_write_header failed: %s\n", ffmpegError);
+		CaptureAbort();
+		return false;
+	}
+	m_CaptureHeaderWritten = true;
+
+	Utils::Logf("Capture started, writing to %s\n", m_CapturePath.c_str());
+	return true;
+}
+
+// Runs on the capture task thread.
+void FFMpegDecoder::CaptureWriteFrame(const CapturePacket& packet, uint32_t rtpTimestamp, bool isKeyFrame) {
+	// Frames queued before the limit was hit (or before an open failure) land here
+	// with nothing to write to.
+	if (m_CaptureFormatCtx == nullptr || !packet || packet->size <= 0) {
+		return;
+	}
+
+	// Only used to paper over a bad timestamp below; real frame timing comes from
+	// the host's own deltas.
+	const int64_t nominalFrameTicks = (fps > 0) ? (90000 / fps) : 1500;
+
+	// Capture pts starts at 0
+	if (!m_CaptureHavePts) {
+		m_CapturePts = 0;
+		m_CaptureHavePts = true;
+	}
+	else {
+		int64_t delta = (uint32_t)(rtpTimestamp - m_CaptureLastRtp);
+		if (delta <= 0 || delta > 10 * 90000) {
+			delta = nominalFrameTicks;
+		}
+
+		m_CapturePts += delta;
+	}
+	m_CaptureLastRtp = rtpTimestamp;
+
+	AVPacket* pkt = packet.get();
+	pkt->stream_index = m_CaptureStream->index;
+	pkt->pts = m_CapturePts;
+	pkt->dts = m_CapturePts;
+	pkt->duration = 0; // .ts doesn't support duration
+	pkt->flags = isKeyFrame ? AV_PKT_FLAG_KEY : 0;
+
+	// av_write_frame borrows the packet rather than taking ownership of it, so
+	// the CapturePacket deleter still frees it once this task is done.
+	int err = av_write_frame(m_CaptureFormatCtx, pkt);
+	if (err < 0) {
+		char ffmpegError[256];
+		av_strerror(err, ffmpegError, sizeof(ffmpegError));
+		Utils::Logf("Capture: av_write_frame failed: %s\n", ffmpegError);
+		CaptureClose();
+		StopRecordingFromWriter();
+		return;
+	}
+
+	if (m_CaptureBytesWritten >= CAPTURE_LIMIT) {
+		Utils::Logf("Capture: %lld MB limit reached\n", (long long)(CAPTURE_LIMIT / (1024 * 1024)));
+		CaptureClose();
+		StopRecordingFromWriter();
 	}
 }
 
+// Runs on the capture task thread. Finishes the file and reports where it went.
+void FFMpegDecoder::CaptureClose() {
+	if (m_CaptureFormatCtx != nullptr && m_CaptureHeaderWritten) {
+		int err = av_write_trailer(m_CaptureFormatCtx);
+		if (err < 0) {
+			char ffmpegError[256];
+			av_strerror(err, ffmpegError, sizeof(ffmpegError));
+			Utils::Logf("Capture: av_write_trailer failed: %s\n", ffmpegError);
+		}
+	}
+
+	// Push whatever is still sitting in the AVIO buffer out to the file while it
+	// is still open.
+	if (m_CaptureAvioCtx != nullptr) {
+		avio_flush(m_CaptureAvioCtx);
+	}
+
+	const int64_t bytes = m_CaptureBytesWritten;
+	const std::string path = m_CapturePath;
+
+	CaptureAbort();
+
+	if (bytes > 0) {
+		Utils::Logf("Capture saved %.1f MB to %s\n", bytes / (1024.0 * 1024.0), path.c_str());
+	}
+}
+
+// Tear down the muxer and file without writing a trailer. Safe to call at any
+// point, including from a partially failed CaptureOpen().
+void FFMpegDecoder::CaptureAbort() {
+	if (m_CaptureFormatCtx != nullptr) {
+		// AVFMT_FLAG_CUSTOM_IO means avformat won't touch our pb, so free it below.
+		avformat_free_context(m_CaptureFormatCtx);
+		m_CaptureFormatCtx = nullptr;
+		m_CaptureStream = nullptr;
+	}
+
+	if (m_CaptureAvioCtx != nullptr) {
+		av_freep(&m_CaptureAvioCtx->buffer);
+		avio_context_free(&m_CaptureAvioCtx);
+	}
+
+	if (m_CaptureFile.is_open()) {
+		m_CaptureFile.close();
+		if (!m_CaptureFile) {
+			Utils::Logf("Capture: failed closing %s\n", m_CapturePath.c_str());
+		}
+	}
+	m_CaptureFile.clear();
+
+	m_CapturePath.clear();
+	m_CaptureBytesWritten = 0;
+	m_CapturePts = 0;
+	m_CaptureLastRtp = 0;
+	m_CaptureHavePts = false;
+	m_CaptureHeaderWritten = false;
+}
+
+bool FFMpegDecoder::IsCaptureActive() const {
+	return m_CaptureState.load() != CaptureState::Idle;
+}
+
 void FFMpegDecoder::ToggleCapture() {
-	bool current = m_CaptureEnabled.load();
-	SetCapture(!current);
+	SetCapture(!IsCaptureActive());
 }
 
 void FFMpegDecoder::SetCapture(bool wanted) {
-	bool current = m_CaptureEnabled.load();
-	if (current != wanted) {
-		m_CaptureEnabled.store(wanted);
-		m_CaptureWrittenBytes.store(0);
+	std::lock_guard<std::mutex> lock(m_CaptureQueueMutex);
 
-		if (!wanted) {
-			Utils::Log("Capture saved to LocalAppData/Moonlight/LocalState\n");
+	if (wanted) {
+		if (m_CaptureQueueStopping || m_CaptureState.load() != CaptureState::Idle) {
+			return;
 		}
-		else {
-			Utils::Log("Capture started\n");
-		}
+
+		// A capture is only useful if it opens with a decodable picture, so ask
+		// the host for an IDR and let the decode thread start on its arrival.
+		m_CaptureState.store(CaptureState::WaitingForIdr);
+		LiRequestIdrFrame();
+		Utils::Log("Capture armed, waiting for an IDR frame\n");
+		return;
+	}
+
+	CaptureState previous = m_CaptureState.exchange(CaptureState::Idle);
+	if (previous == CaptureState::Recording) {
+		EnqueueCaptureTask([this] { CaptureClose(); });
+	}
+	else if (previous == CaptureState::WaitingForIdr) {
+		Utils::Log("Capture cancelled before an IDR frame arrived\n");
 	}
 }

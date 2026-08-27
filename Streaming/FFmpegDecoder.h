@@ -1,8 +1,11 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
+#include <fstream>
 #include <mutex>
 #include <queue>
+#include <string>
 #include "../Common/StepTimer.h"
 #include "Pacer.h"
 #include "Utils.hpp"
@@ -11,6 +14,7 @@
 extern "C" {
 #include <Limelight.h>
 #include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
 #include <libavutil/hwcontext_d3d11va.h>
 #include <libswscale/swscale.h>
 }
@@ -23,9 +27,15 @@ typedef struct MLFrameData {
 	int64_t presentVsyncQpc;  // hard vsync deadline
 } MLFrameData;
 
-using CaptureBuffer = std::shared_ptr<const std::vector<uint8_t>>;
+// A copy of one access unit, kept alive until the capture writer thread muxes it.
+using CapturePacket = std::shared_ptr<AVPacket>;
 
 namespace moonlight_xbox_dx {
+
+// Capture only ever starts on an IDR, so arming it and recording it are
+// separate states: SetCapture(true) asks the host for an IDR and the decode
+// thread promotes us to Recording when that frame shows up.
+enum class CaptureState { Idle, WaitingForIdr, Recording };
 
 class FFMpegDecoder {
   public:
@@ -40,6 +50,7 @@ class FFMpegDecoder {
 	static DECODER_RENDERER_CALLBACKS getDecoder();
 	void ToggleCapture();
 	void SetCapture(bool wanted);
+	bool IsCaptureActive() const;
 
 	// Called from the get_format callback to set up a frame pool with
 	// D3D11_BIND_SHADER_RESOURCE so the renderer can sample decoder surfaces
@@ -74,9 +85,18 @@ class FFMpegDecoder {
 	FFMpegDecoder();
 	FFMpegDecoder(const FFMpegDecoder &) = delete;
 	FFMpegDecoder &operator=(const FFMpegDecoder &) = delete;
-	void QueueCapture(CaptureBuffer frame, CaptureBuffer cachedIdr, int frameType);
-	void WriteCapture(const uint8_t* data, size_t length, int frameType, const CaptureBuffer& cachedIdr);
+	// Producer side, called on the decode thread.
+	void QueueCaptureFrame(const uint8_t *data, size_t length, uint32_t rtpTimestamp, bool isKeyFrame);
+	void EnqueueCaptureTask(std::function<void()> work); // caller holds m_CaptureQueueMutex
 	void DrainCaptureQueue();
+	void StopRecordingFromWriter();
+
+	// Consumer side, only ever touched by the serialized capture task chain.
+	bool CaptureOpen();
+	void CaptureWriteFrame(const CapturePacket &packet, uint32_t rtpTimestamp, bool isKeyFrame);
+	void CaptureClose();
+	void CaptureAbort();
+	static int CaptureAvioWrite(void *opaque, const uint8_t *buf, int size);
 
 	const AVCodec *decoder;
 	AVCodecContext *decoder_ctx;
@@ -88,13 +108,25 @@ class FFMpegDecoder {
 	int m_LastFrameNumber;
 	int64_t m_StreamEpochQpc;
 
+	// m_CaptureState is atomic so the decode thread can skip the capture path with
+	// a single relaxed load, but every *change* to it happens under
+	// m_CaptureQueueMutex so the state transition and the task it enqueues stay
+	// ordered against each other.
+	std::atomic<CaptureState> m_CaptureState{CaptureState::Idle};
 	std::mutex m_CaptureQueueMutex;
 	Concurrency::task<void> m_CaptureTail;
-	CaptureBuffer m_CachedIDR;
 	bool m_CaptureQueueStopping = false;
-	bool m_CaptureWroteIDR = false;
-	std::atomic<bool> m_CaptureEnabled{false};
-	std::atomic<size_t> m_CaptureWrittenBytes{0};
-	std::string m_CaptureFilenamePrefix;
+
+	// Writer-thread state
+	AVFormatContext *m_CaptureFormatCtx = nullptr;
+	AVIOContext *m_CaptureAvioCtx = nullptr;
+	AVStream *m_CaptureStream = nullptr;
+	std::ofstream m_CaptureFile;
+	std::string m_CapturePath;
+	int64_t m_CaptureBytesWritten = 0;
+	int64_t m_CapturePts = 0;
+	uint32_t m_CaptureLastRtp = 0;
+	bool m_CaptureHavePts = false;
+	bool m_CaptureHeaderWritten = false;
 };
 } // namespace moonlight_xbox_dx
