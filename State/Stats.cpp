@@ -34,6 +34,24 @@ void Stats::Reset()
 	ZeroMemory(&m_ActiveWndVideoStats, sizeof(VIDEO_STATS));
 	ZeroMemory(&m_LastWndVideoStats, sizeof(VIDEO_STATS));
 	ZeroMemory(&m_GlobalVideoStats, sizeof(VIDEO_STATS));
+	ZeroMemory(&m_LastRtpVideoStats, sizeof(RTP_VIDEO_STATS));
+}
+
+void Stats::sampleRtpStats()
+{
+	// must be called with m_mutex held
+	RTP_VIDEO_STATS current = {};
+	if (!LiGetRTPVideoStatsSnapshot(&current)) {
+		return;
+	}
+
+	m_ActiveWndVideoStats.expectedVideoPackets += uint32_t(current.packetCountVideoExpected - m_LastRtpVideoStats.packetCountVideoExpected);
+	m_ActiveWndVideoStats.recoveredVideoPackets += uint32_t(current.packetCountFecRecovered - m_LastRtpVideoStats.packetCountFecRecovered);
+	m_ActiveWndVideoStats.unrecoveredVideoPackets += uint32_t(current.packetCountFecFailed - m_LastRtpVideoStats.packetCountFecFailed);
+	m_ActiveWndVideoStats.receivedVideoPackets += current.packetCountVideoReceived - m_LastRtpVideoStats.packetCountVideoReceived;
+	m_ActiveWndVideoStats.lostVideoPackets += current.packetCountLostVideo - m_LastRtpVideoStats.packetCountLostVideo;
+
+	m_LastRtpVideoStats = current;
 }
 
 // Called every frame, if true is returned, the stats text is refreshed
@@ -50,6 +68,7 @@ bool Stats::ShouldUpdateDisplay(DX::StepTimer const& timer, bool isVisible, char
 	// Process stats once per second
 	if (timer.GetTotalSeconds() - m_ActiveWndVideoStats.measurementStartTimestamp >= 1.0) {
 		std::lock_guard<std::mutex> lock(m_mutex);
+		sampleRtpStats();
 
 		if (isVisible) {
 			// Display using data from the last 2 window periods
@@ -223,6 +242,19 @@ void Stats::addVideoStats(DX::StepTimer const& timer, VIDEO_STATS& src, VIDEO_ST
 	dst.totalPresentDisplayMs += src.totalPresentDisplayMs;
 	dst.countPresentDisplayMs += src.countPresentDisplayMs;
 
+	dst.expectedVideoPackets += src.expectedVideoPackets;
+	dst.expectedFecPackets += src.expectedFecPackets;
+	dst.recoveredVideoPackets += src.recoveredVideoPackets;
+	dst.unrecoveredVideoPackets += src.unrecoveredVideoPackets;
+	dst.receivedVideoPackets += src.receivedVideoPackets;
+	dst.receivedFecPackets += src.receivedFecPackets;
+	dst.lostVideoPackets += src.lostVideoPackets;
+	dst.framesWithPacketLossStats += src.framesWithPacketLossStats;
+	dst.totalFramePacketLossPercent += src.totalFramePacketLossPercent;
+	dst.maxFramePacketLossPercent = std::max(dst.maxFramePacketLossPercent, src.maxFramePacketLossPercent);
+	dst.partialFramesAccepted += src.partialFramesAccepted;
+	dst.partialFramesRejected += src.partialFramesRejected;
+
 	if (dst.minHostProcessingLatency == 0) {
 		dst.minHostProcessingLatency = src.minHostProcessingLatency;
 	}
@@ -253,19 +285,27 @@ void Stats::addVideoStats(DX::StepTimer const& timer, VIDEO_STATS& src, VIDEO_ST
 	// The following code assumes the global measure was already started first
 	assert(dst.measurementStartTimestamp <= src.measurementStartTimestamp);
 
-	dst.totalFps = (double)dst.totalFrames / (now - dst.measurementStartTimestamp);
-	dst.receivedFps = (double)dst.receivedFrames / (now - dst.measurementStartTimestamp);
-	dst.decodedFps = (double)dst.decodedFrames / (now - dst.measurementStartTimestamp);
-	dst.renderedFps = (double)dst.renderedFrames / (now - dst.measurementStartTimestamp);
+	double timeDiffSecs = now - dst.measurementStartTimestamp;
+	dst.totalFps = (double)dst.totalFrames / timeDiffSecs;
+	dst.receivedFps = (double)dst.receivedFrames / timeDiffSecs;
+	dst.decodedFps = (double)dst.decodedFrames / timeDiffSecs;
+	dst.renderedFps = (double)dst.renderedFrames / timeDiffSecs;
+
+	dst.videoPps = (double) dst.receivedVideoPackets / timeDiffSecs;
+	dst.lostPps = (double) dst.lostVideoPackets / timeDiffSecs;
+	dst.recoveredPps = (double) dst.recoveredVideoPackets / timeDiffSecs;
+	dst.partialAcceptedPps = (double) dst.partialFramesAccepted / timeDiffSecs;
+	dst.partialRejectedPps = (double) dst.partialFramesRejected / timeDiffSecs;
 }
 
 void Stats::formatVideoStats(DX::StepTimer const &timer, VIDEO_STATS &stats, char *output, size_t length) {
 	FFMpegDecoder &ffmpeg = FFMpegDecoder::instance();
 	PyroWaveDecoder &pyrowave = PyroWaveDecoder::instance();
+	bool isPyroWave = pyrowave.IsActive();
 
-	int videoFormat = pyrowave.IsActive() ? pyrowave.videoFormat : ffmpeg.videoFormat;
-	int videoWidth = pyrowave.IsActive() ? pyrowave.width : ffmpeg.width;
-	int videoHeight = pyrowave.IsActive() ? pyrowave.height : ffmpeg.height;
+	int videoFormat = isPyroWave ? pyrowave.videoFormat : ffmpeg.videoFormat;
+	int videoWidth = isPyroWave ? pyrowave.width : ffmpeg.width;
+	int videoHeight = isPyroWave ? pyrowave.height : ffmpeg.height;
 
 	int offset = 0;
 	const char *codecString;
@@ -362,12 +402,12 @@ void Stats::formatVideoStats(DX::StepTimer const &timer, VIDEO_STATS &stats, cha
 
 	if (stats.receivedFps > 0) {
 		ret = snprintf(&output[offset],
-		               length - offset,
-		               "Video: %dx%d %.2f FPS (%s)\n",
-		               videoWidth,
-		               videoHeight,
-		               stats.totalFps,
-		               codecString);
+					   length - offset,
+					   "Video: %dx%d %.2f FPS (%s)\n",
+					   videoWidth,
+					   videoHeight,
+					   stats.totalFps,
+					   codecString);
 		if (ret < 0 || (size_t)ret >= (length - offset)) {
 			Utils::Log("Error: stringifyVideoStats length overflow\n");
 			return;
@@ -379,18 +419,18 @@ void Stats::formatVideoStats(DX::StepTimer const &timer, VIDEO_STATS &stats, cha
 		double peakVideoMbps = m_bwTracker.GetPeakMbps();
 
 		ret = snprintf(&output[offset],
-		               length - offset,
-		               "Bitrate: %.1f Mbps, Peak (%us): %.1f\n"
-		               "Incoming frame rate from network: %.2f FPS\n"
-		               "Decoding frame rate: %.2f FPS\n"
-		               "Rendering frame rate: %.2f FPS (%s)\n",
-		               avgVideoMbps,
-		               m_bwTracker.GetWindowSeconds(),
-		               peakVideoMbps,
-		               stats.receivedFps,
-		               stats.decodedFps,
-		               stats.renderedFps,
-		               Pacer::instance().getPacingImmediate() ? "immediate" : "display-locked");
+					   length - offset,
+					   "Bitrate: %.1f Mbps, Peak (%us): %.1f\n"
+					   "Incoming frame rate from network: %.2f FPS\n"
+					   "Decoding frame rate: %.2f FPS\n"
+					   "Rendering frame rate: %.2f FPS (%s)\n",
+					   avgVideoMbps,
+					   m_bwTracker.GetWindowSeconds(),
+					   peakVideoMbps,
+					   stats.receivedFps,
+					   stats.decodedFps,
+					   stats.renderedFps,
+					   Pacer::instance().getPacingImmediate() ? "immediate" : "display-locked");
 		if (ret < 0 || (size_t)ret >= (length - offset)) {
 			Utils::Log("Error: stringifyVideoStats length overflow\n");
 			return;
@@ -401,11 +441,11 @@ void Stats::formatVideoStats(DX::StepTimer const &timer, VIDEO_STATS &stats, cha
 
 	if (stats.framesWithHostProcessingLatency > 0) {
 		ret = snprintf(&output[offset],
-		               length - offset,
-		               "Host processing latency min/max/avg: %.1f/%.1f/%.1f ms\n",
-		               (double)stats.minHostProcessingLatency / 10,
-		               (double)stats.maxHostProcessingLatency / 10,
-		               (double)stats.totalHostProcessingLatency / 10 / stats.framesWithHostProcessingLatency);
+					   length - offset,
+					   "Host processing latency min/max/avg: %.1f/%.1f/%.1f ms\n",
+					   (double)stats.minHostProcessingLatency / 10,
+					   (double)stats.maxHostProcessingLatency / 10,
+					   (double)stats.totalHostProcessingLatency / 10 / stats.framesWithHostProcessingLatency);
 		if (ret < 0 || (size_t)ret >= (length - offset)) {
 			Utils::Log("Error: stringifyVideoStats length overflow\n");
 			return;
@@ -415,8 +455,8 @@ void Stats::formatVideoStats(DX::StepTimer const &timer, VIDEO_STATS &stats, cha
 	} else {
 		// If all frames are duplicates this can happen, but let's avoid having the whole stats area change height
 		ret = snprintf(&output[offset],
-		               length - offset,
-		               "Host processing latency min/max/avg: -/-/- ms\n");
+					   length - offset,
+					   "Host processing latency min/max/avg: -/-/- ms\n");
 		if (ret < 0 || (size_t)ret >= (length - offset)) {
 			Utils::Log("Error: stringifyVideoStats length overflow\n");
 			return;
@@ -424,6 +464,25 @@ void Stats::formatVideoStats(DX::StepTimer const &timer, VIDEO_STATS &stats, cha
 
 		offset += ret;
 	}
+
+	if (isPyroWave) {
+		ret = snprintf(&output[offset], length - offset,
+		               "Packets/sec: %.1fK Lost: %.0f Partial: %.0f/%.0f\n",
+		               (float)stats.videoPps / 1000.0f,
+		               stats.lostPps,
+		               stats.partialAcceptedPps,
+		               stats.partialRejectedPps);
+	} else {
+		ret = snprintf(&output[offset], length - offset,
+		               "Packets/sec: %.1fK Lost: %.0f\n",
+		               (float)stats.videoPps / 1000.0f,
+		               stats.lostPps);
+	}
+	if (ret < 0 || size_t(ret) >= length - offset) {
+		Utils::Log("Error: stringifyVideoStats length overflow\n");
+		return;
+	}
+	offset += ret;
 
 	if (stats.renderedFrames != 0) {
 		char rttString[32];
@@ -439,50 +498,37 @@ void Stats::formatVideoStats(DX::StepTimer const &timer, VIDEO_STATS &stats, cha
 		// path shows it only with EnableGPUStats.
 		if (stats.gpuTimedFrames > 0) {
 			snprintf(decodeTimeStr, sizeof(decodeTimeStr), "(CPU) %.2f/%.2f (GPU) %.2f ms",
-			         stats.decodedFrames ? (double)stats.totalReassemblyTimeUs / 1000.0 / stats.decodedFrames : 0.0f,
-			         stats.decodedFrames ? (double)stats.totalDecodeTimeMs / stats.decodedFrames : 0.0f,
-			         stats.totalGpuDecodeTimeMs / stats.gpuTimedFrames);
+					 stats.decodedFrames ? (double)stats.totalReassemblyTimeUs / 1000.0 / stats.decodedFrames : 0.0f,
+					 stats.decodedFrames ? (double)stats.totalDecodeTimeMs / stats.decodedFrames : 0.0f,
+					 stats.totalGpuDecodeTimeMs / stats.gpuTimedFrames);
 		} else if (EnableGPUStats()) {
 			snprintf(decodeTimeStr, sizeof(decodeTimeStr), "(CPU) %.2f/%.2f (GPU) %.2f ms",
-			         stats.decodedFrames ? (double)stats.totalReassemblyTimeUs / 1000.0 / stats.decodedFrames : 0.0f,
-			         stats.decodedFrames ? (double)stats.totalDecodeTimeMs / stats.decodedFrames : 0.0f,
-			         m_avgQueueSize);
+					 stats.decodedFrames ? (double)stats.totalReassemblyTimeUs / 1000.0 / stats.decodedFrames : 0.0f,
+					 stats.decodedFrames ? (double)stats.totalDecodeTimeMs / stats.decodedFrames : 0.0f,
+					 m_avgQueueSize);
 		} else {
 			snprintf(decodeTimeStr, sizeof(decodeTimeStr), "%.2f/%.2f ms",
-			         stats.decodedFrames ? (double)stats.totalReassemblyTimeUs / 1000.0 / stats.decodedFrames : 0.0f,
-			         stats.decodedFrames ? (double)stats.totalDecodeTimeMs / stats.decodedFrames : 0.0f);
-		}
-
-		// Partial frames lost packets; accepted ones were rendered instead of
-		// dropped. Hidden entirely on codecs that can't produce them.
-		char partialString[96];
-		if ((stats.partialFramesAccepted || stats.partialFramesRejected) && stats.totalFrames > 0) {
-			snprintf(partialString, sizeof(partialString), "Partial frames rendered/dropped: %.2f%%/%.2f%%\n",
-			         (double)stats.partialFramesAccepted / stats.totalFrames * 100,
-			         (double)stats.partialFramesRejected / stats.totalFrames * 100);
-		} else {
-			partialString[0] = '\0';
+					 stats.decodedFrames ? (double)stats.totalReassemblyTimeUs / 1000.0 / stats.decodedFrames : 0.0f,
+					 stats.decodedFrames ? (double)stats.totalDecodeTimeMs / stats.decodedFrames : 0.0f);
 		}
 
 		ret = snprintf(&output[offset],
-		               length - offset,
-		               "%s"
-		               "Frames dropped by your network connection: %.2f%%\n"
-		               "Frames dropped due to network jitter: %.2f%%\n"
-		               "Average network latency: %s\n"
-		               "Average reassembly/decode: %s\n"
-		               "Average frames in queue: %.1f, audio: %.2f ms\n"
-		               "Average frame queue/render/present delay: %.2f/%.2f/%.2f ms\n",
-		               partialString,
-		               stats.totalFrames ? (double)stats.networkDroppedFrames / stats.totalFrames * 100 : 0.0f,
-		               stats.totalFrames ? (double)stats.pacerDroppedFrames / stats.totalFrames * 100 : 0.0f,
-		               rttString,
-		               decodeTimeStr,
-		               m_avgQueueSize,
+					   length - offset,
+					   "Frames dropped by your network connection: %.2f%%\n"
+					   "Frames dropped due to network jitter: %.2f%%\n"
+					   "Average network latency: %s\n"
+					   "Average reassembly/decode: %s\n"
+					   "Average frames in queue: %.1f, audio: %.2f ms\n"
+					   "Average frame queue/render/present delay: %.2f/%.2f/%.2f ms\n",
+					   stats.totalFrames ? (double)stats.networkDroppedFrames / stats.totalFrames * 100 : 0.0f,
+					   stats.totalFrames ? (double)stats.pacerDroppedFrames / stats.totalFrames * 100 : 0.0f,
+					   rttString,
+					   decodeTimeStr,
+					   m_avgQueueSize,
 					   ImGuiPlots::instance().getAvg(PLOT_AUDIO_BUFFER_MS),
-		               stats.renderedFrames ? (double)stats.totalPacerTimeUs / 1000.0 / stats.renderedFrames : 0.0f,
-		               stats.renderedFrames ? (double)stats.totalRenderTimeUs / 1000.0 / stats.renderedFrames : 0.0f,
-		               stats.renderedFrames ? (double)stats.totalPresentDisplayMs / stats.countPresentDisplayMs : 0.0f);
+					   stats.renderedFrames ? (double)stats.totalPacerTimeUs / 1000.0 / stats.renderedFrames : 0.0f,
+					   stats.renderedFrames ? (double)stats.totalRenderTimeUs / 1000.0 / stats.renderedFrames : 0.0f,
+					   stats.renderedFrames ? (double)stats.totalPresentDisplayMs / stats.countPresentDisplayMs : 0.0f);
 		if (ret < 0 || (size_t)ret >= (length - offset)) {
 			Utils::Log("Error: stringifyVideoStats length overflow\n");
 			return;
@@ -496,14 +542,14 @@ void Stats::formatVideoStats(DX::StepTimer const &timer, VIDEO_STATS &stats, cha
 	// If you add lines here, add more height pixels in StatsRenderer::CreateWindowSizeDependentResources()
 	if (stats.renderedFrames != 0) {
 		ret = snprintf(&output[offset],
-		               length - offset,
-		               "------\n"
-		               "Missed present rate: %.2f%%\n"
-		               "PreWait/Render: %.2f/%.2f ms\n" stats.hitDeadlines
-		                   ? ((double)stats.missedDeadlines / (stats.missedDeadlines + stats.hitDeadlines)) * 100
-		                   : 0.0f,
-		               (double)stats.totalPreWaitTimeUs / 1000.0 / stats.renderedFrames,
-		               (double)stats.totalRenderTimeUs / 1000.0 / stats.renderedFrames);
+					   length - offset,
+					   "------\n"
+					   "Missed present rate: %.2f%%\n"
+					   "PreWait/Render: %.2f/%.2f ms\n" stats.hitDeadlines
+						   ? ((double)stats.missedDeadlines / (stats.missedDeadlines + stats.hitDeadlines)) * 100
+						   : 0.0f,
+					   (double)stats.totalPreWaitTimeUs / 1000.0 / stats.renderedFrames,
+					   (double)stats.totalRenderTimeUs / 1000.0 / stats.renderedFrames);
 		if (ret < 0 || (size_t)ret >= (length - offset)) {
 			Utils::Log("Error: stringifyVideoStats length overflow\n");
 			return;

@@ -26,8 +26,6 @@ typedef struct _VIDEO_STATS {
 	uint32_t totalFrames;
 	uint32_t networkDroppedFrames;
 	uint32_t pacerDroppedFrames;
-	uint32_t partialFramesAccepted; // frames with lost packets rendered anyway (PyroWave only)
-	uint32_t partialFramesRejected; // frames with lost packets too damaged to render (PyroWave only)
 	uint32_t hitDeadlines;
 	uint32_t missedDeadlines;
 	uint16_t minHostProcessingLatency;
@@ -52,6 +50,28 @@ typedef struct _VIDEO_STATS {
 	double decodedFps;
 	double renderedFps;
 	double measurementStartTimestamp;
+
+	// RTP packet stats
+	uint64_t expectedVideoPackets;
+	uint64_t expectedFecPackets;
+	uint64_t recoveredVideoPackets;
+	uint64_t unrecoveredVideoPackets;
+	uint64_t receivedVideoPackets;
+	uint64_t receivedFecPackets;
+	uint64_t lostVideoPackets;
+	uint32_t framesWithPacketLossStats;
+	double totalFramePacketLossPercent;
+	double maxFramePacketLossPercent;
+	double videoPps;
+	double fecPps;
+	double lostPps;
+	double recoveredPps;
+
+	// PyroWave
+	uint32_t partialFramesAccepted;
+	uint32_t partialFramesRejected;
+	double partialAcceptedPps;
+	double partialRejectedPps;
 } VIDEO_STATS, *PVIDEO_STATS;
 
 namespace moonlight_xbox_dx
@@ -84,6 +104,7 @@ namespace moonlight_xbox_dx
 
 		void addVideoStats(DX::StepTimer const& timer, VIDEO_STATS& src, VIDEO_STATS& dst);
 		void formatVideoStats(DX::StepTimer const& timer, VIDEO_STATS& stats, char* output, size_t length);
+		void sampleRtpStats(); // m_mutex must be held
 
 		std::mutex                           m_mutex;
 
@@ -91,6 +112,7 @@ namespace moonlight_xbox_dx
 		VIDEO_STATS                          m_ActiveWndVideoStats;
 		VIDEO_STATS                          m_LastWndVideoStats;
 		VIDEO_STATS                          m_GlobalVideoStats;
+		RTP_VIDEO_STATS                      m_LastRtpVideoStats = {};
 		BandwidthTracker                     m_bwTracker;
 		float                                m_avgQueueSize;
 		double                               m_avgMbpsSmoothed;
