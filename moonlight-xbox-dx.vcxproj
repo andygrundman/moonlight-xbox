@@ -347,7 +347,7 @@
     <ClCompile>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)\third_party\DirectXTK\inc;$(ProjectDir)vcpkg_installed\x64-uwp\include;$(IntermediateOutputPath);third_party\moonlight-common-c\src;third_party\imgui;third_party\imgui\backends;third_party\imgui-uwp\backends;third_party\implot;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)\third_party\DirectXTK\inc;$(ProjectDir)vcpkg_installed\x64-uwp\include;$(IntermediateOutputPath);third_party\moonlight-common-c\src;third_party\imgui;third_party\imgui\backends;third_party\imgui-uwp\backends;third_party\implot;third_party\tracy-xbox\public;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4453;28204</DisableSpecificWarnings>
       <PreprocessorDefinitions>_CRT_NONSTDC_NO_DEPRECATE;_CRT_SECURE_NO_DEPRECATE;_CRT_SECURE_NO_WARNINGS;_DEBUG;%(PreprocessorDefinitions);_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING</PreprocessorDefinitions>
@@ -367,7 +367,7 @@
     <ClCompile>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)pch.pch</PrecompiledHeaderOutputFile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)\third_party\DirectXTK\inc;$(ProjectDir)vcpkg_installed\x64-uwp\include;$(IntermediateOutputPath);third_party\moonlight-common-c\src;third_party\imgui;third_party\imgui\backends;third_party\imgui-uwp\backends;third_party\implot;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)\third_party\DirectXTK\inc;$(ProjectDir)vcpkg_installed\x64-uwp\include;$(IntermediateOutputPath);third_party\moonlight-common-c\src;third_party\imgui;third_party\imgui\backends;third_party\imgui-uwp\backends;third_party\implot;third_party\tracy-xbox\public;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4453;28204</DisableSpecificWarnings>
       <PreprocessorDefinitions>_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_CRT_SECURE_NO_WARNINGS;NDEBUG;%(PreprocessorDefinitions);_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING</PreprocessorDefinitions>
@@ -377,7 +377,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseWithTracy|x64'">
     <Link>
-      <AdditionalDependencies>$(ProjectDir)/libgamestream/build/$(Configuration)/gamestream.lib;$(ProjectDir)/third_party/DirectXTK/Bin/Windows10_2022/x64/$(Configuration)/DirectXTK.lib;libexpat.lib;libcurl.lib;libcrypto.lib;libssl.lib;avcodec.lib;avutil.lib;swscale.lib;d2d1.lib;d3d11.lib;dxgi.lib;dxguid.lib;windowscodecs.lib;dwrite.lib;ws2_32.lib;opus.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(ProjectDir)/libgamestream/build/$(Configuration)/gamestream.lib;$(ProjectDir)/third_party/DirectXTK/Bin/Windows10_2022/x64/$(Configuration)/DirectXTK.lib;libexpat.lib;libcurl.lib;libcrypto.lib;libssl.lib;avcodec.lib;avformat.lib;avutil.lib;swscale.lib;d2d1.lib;d3d11.lib;d3d12.lib;dxgi.lib;dxguid.lib;windowscodecs.lib;dwrite.lib;ws2_32.lib;opus.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories);$(ProjectDir)vcpkg_installed\x64-uwp\lib;$(VCInstallDir)\lib\store\amd64;$(VCInstallDir)\lib\amd64;$(ProjectDir)third_party\moonlight-common-c\build\$(Configuration)\</AdditionalLibraryDirectories>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
@@ -484,7 +484,6 @@
     <ClInclude Include="Streaming\VideoRenderer.h" />
     <ClInclude Include="Streaming\LogRenderer.h" />
     <ClInclude Include="Streaming\ShaderStructures.h" />
-    <ClInclude Include="State\MDNSHandler.h" />
     <ClInclude Include="Pages\HostSettingsPage.xaml.h">
       <DependentUpon>Pages\HostSettingsPage.xaml</DependentUpon>
     </ClInclude>
@@ -653,7 +652,6 @@
       <PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <ClCompile Include="Streaming\VideoRenderer.cpp" />
-    <ClCompile Include="State\MDNSHandler.cpp" />
     <ClCompile Include="Pages\HostSettingsPage.xaml.cpp">
       <DependentUpon>Pages\HostSettingsPage.xaml</DependentUpon>
     </ClCompile>
@@ -729,6 +727,8 @@
     <ClCompile Include="third_party\tracy-xbox\public\TracyClient.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='ReleaseWithTracy|x64'">NotUsing</PrecompiledHeader>
       <CompileAsWinRT Condition="'$(Configuration)|$(Platform)'=='ReleaseWithTracy|x64'">false</CompileAsWinRT>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="Utils.cpp" />
     <ClCompile Include="Utils\FloatBuffer.cpp" />

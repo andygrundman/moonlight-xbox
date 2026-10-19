@@ -33,12 +33,7 @@
 #include <imgui_impl_uwp.h>
 #include <imgui_impl_dx11.h>
 
-#define MOONLIGHT_D3D_DEBUG_LAYER 1
-
-// MOONLIGHT_D3D_DEBUG_LAYER turns the D3D/DXGI debug layers on outside of _DEBUG builds.
-// It costs performance, so it is a diagnostic switch rather than something to leave on in a
-// profiling build.
-#if defined(_DEBUG) || defined(MOONLIGHT_D3D_DEBUG_LAYER)
+#if defined(_DEBUG)
 #include <dxgidebug.h>
 #include <d3d11sdklayers.h>
 #endif

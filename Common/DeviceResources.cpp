@@ -93,7 +93,7 @@ void DX::DeviceResources::CreateDeviceResources()
 	// than the API default. It is required for compatibility with Direct2D.
 	UINT creationFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 
-#if defined(_DEBUG) || defined(MOONLIGHT_D3D_DEBUG_LAYER)
+#if defined(_DEBUG)
 	if (DX::SdkLayersAvailable())
 	{
 		// If the project is in a debug build, enable debugging via SDK Layers with this flag.
@@ -101,7 +101,7 @@ void DX::DeviceResources::CreateDeviceResources()
 	}
 #endif
 
-#if defined(_DEBUG) || defined(MOONLIGHT_D3D_DEBUG_LAYER)
+#if defined(_DEBUG)
 	{
 		ComPtr<IDXGIInfoQueue> dxgiInfoQueue;
 		if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(dxgiInfoQueue.GetAddressOf()))))
@@ -191,7 +191,7 @@ void DX::DeviceResources::CreateDeviceResources()
 		context.As(&m_d3dContext)
 		);
 
-#if defined(_DEBUG) || defined(MOONLIGHT_D3D_DEBUG_LAYER)
+#if defined(_DEBUG)
 	{
 		// The DXGI info queue above only reports DXGI-level problems. Invalid D3D11 calls --
 		// misused queries, for instance -- are reported here instead, and otherwise surface
