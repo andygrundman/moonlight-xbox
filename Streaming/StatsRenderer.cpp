@@ -48,12 +48,12 @@ void StatsRenderer::Render(bool showImGui) {
 	if (m_visible) {
 		{
 			ZoneScopedN("StatsRender");
-			TracyD3D11Zone(g_tracyCtx, "StatsRender");
+			TracyD3D11Zone(g_tracyCtx11, "StatsRender");
 			m_console->Render();
 		}
 		if (showImGui) {
 			ZoneScopedN("GraphsRender");
-			TracyD3D11Zone(g_tracyCtx, "GraphsRender");
+			TracyD3D11Zone(g_tracyCtx11, "GraphsRender");
 			RenderGraphs();
 		}
 	}

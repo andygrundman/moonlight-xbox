@@ -238,6 +238,7 @@ void moonlight_xbox_dxMain::StartRenderLoop() {
 		const double alphaDown = 0.05; // decay slowly when renderMs drops
 		double ewmaRenderMs = 3.0;     // Initial guess for render cost
 
+	#ifdef TRACY_ENABLE_D3D11
 		{
 			// Tracy's D3D11 context belongs to this thread: creating it drives the immediate
 			// context (it allocates queries and calibrates against the GPU clock), which the
@@ -245,9 +246,10 @@ void moonlight_xbox_dxMain::StartRenderLoop() {
 			// Creating it here rather than alongside the swapchain also means it is built
 			// exactly once, and only while the GPU is actually pumping frames.
 			auto guard = FFMpegDecoder::Lock();
-			g_tracyCtx = TracyD3D11Context(m_deviceResources->GetD3DDevice(),
-			                               m_deviceResources->GetD3DDeviceContext());
+			g_tracyCtx11 = TracyD3D11Context(m_deviceResources->GetD3DDevice(),
+			                                 m_deviceResources->GetD3DDeviceContext());
 		}
+	#endif
 
 		// Calculate the updated frame and render once per vertical blanking interval.
 		while (action->Status == AsyncStatus::Started && !moonlightClient->IsConnectionTerminated()) {
@@ -271,7 +273,7 @@ void moonlight_xbox_dxMain::StartRenderLoop() {
 					// under the lock: a GPU zone writes to the immediate context at both
 					// ends of its scope.
 					ZoneScopedN("Render");
-					TracyD3D11Zone(g_tracyCtx, "Render");
+					TracyD3D11Zone(g_tracyCtx11, "Render");
 					rendered = Render();
 					t2 = QpcNow();
 				}
@@ -296,8 +298,9 @@ void moonlight_xbox_dxMain::StartRenderLoop() {
 					auto guard = FFMpegDecoder::Lock();
 					m_deviceResources->Present();
 					FrameMark;
-					TracyD3D11Collect(g_tracyCtx);
 				}
+
+				TracyD3D11Collect(g_tracyCtx11);
 
 				// Graph frametime only for new frames
 				bool isRepeatFrame = true;
@@ -350,15 +353,17 @@ void moonlight_xbox_dxMain::StartRenderLoop() {
 			}
 		}
 
+	#ifdef TRACY_ENABLE_D3D11
 		// we've lost the connection, clean up
-		if (g_tracyCtx) {
+		if (g_tracyCtx11) {
 			// Destroying the context blocks until every outstanding timestamp query has been
 			// retired, so it has to happen here, on the thread that issued them, while the
 			// device is still alive.
 			auto guard = FFMpegDecoder::Lock();
-			TracyD3D11Destroy(g_tracyCtx);
-			g_tracyCtx = nullptr;
+			TracyD3D11Destroy(g_tracyCtx11);
+			g_tracyCtx11 = nullptr;
 		}
+	#endif
 
 		StopRenderLoop(); // also stops input
 		Disconnect();
