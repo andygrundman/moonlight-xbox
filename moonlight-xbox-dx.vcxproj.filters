@@ -533,6 +533,9 @@
     <ClInclude Include="Utils\TracyBootstrap.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Utils\SlidingWindowCounter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Image Include="Assets\LargeTile.scale-100.png">
@@ -693,105 +696,6 @@
     <AppxManifest Include="Package.appxmanifest" />
   </ItemGroup>
   <ItemGroup>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
-    <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
-      <Filter>DLLs</Filter>
-    </CopyFileToFolders>
     <CopyFileToFolders Include="vcpkg_installed\x64-uwp\bin\*">
       <Filter>DLLs</Filter>
     </CopyFileToFolders>

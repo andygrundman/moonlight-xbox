@@ -510,6 +510,7 @@
     <ClInclude Include="Streaming\moonlight_xbox_dxMain.h" />
     <ClInclude Include="Utils.hpp" />
     <ClInclude Include="Utils\FloatBuffer.h" />
+    <ClInclude Include="Utils\SlidingWindowCounter.h" />
     <ClInclude Include="Utils\TracyBootstrap.h" />
   </ItemGroup>
   <ItemGroup>

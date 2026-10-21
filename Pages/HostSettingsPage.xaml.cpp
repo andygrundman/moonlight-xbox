@@ -295,8 +295,10 @@ void HostSettingsPage::CodecComboBox_SelectionChanged(Platform::Object^ sender, 
 	if (e->AddedItems->Size == 0) return;
 	auto selectedCodec = (Platform::String^)e->AddedItems->GetAt(0);
 
-	// Default to a new bitrate if a new codec was chosen
-	host->Bitrate = getDefaultBitrate(host->Resolution->Width, host->Resolution->Height, host->FPS, selectedCodec);
+	if (selectedCodec != host->VideoCodec) {
+		// Default to a new bitrate if a new codec was chosen
+		host->Bitrate = getDefaultBitrate(host->Resolution->Width, host->Resolution->Height, host->FPS, selectedCodec);
+	}
 
 	if (selectedCodec == "PyroWave 4:2:0" || selectedCodec == "PyroWave 4:4:4") {
 		CodecDescPyroWave->Visibility = Windows::UI::Xaml::Visibility::Visible;
@@ -357,22 +359,26 @@ int HostSettingsPage::getDefaultBitrate(int width, int height, int fps, Platform
 		}
 	}
 
-	// PyroWave is intra-only and needs far more bitrate than H.264/HEVC for the
-	// same quality: roughly 0.5 bits/pixel at the configured resolution and FPS.
+	// PyroWave needs far more bitrate than H.264/HEVC.
+	// 8-bit vs 10-bit could also be considered but I'm just going to
+	// assume most people will use 10-bit.
+	//             4:2:0   4:4:4
+	// 4K120:        700     800
+	// 1440p120:     500     600
+	// 1080p120:     400     500
+	// 60fps:        / 2
 	if (codec == L"PyroWave 4:2:0" || codec == L"PyroWave 4:4:4") {
-		switch (height) {
-		case 2160:
-			resolutionFactor = 650;
-			break;
-		case 1440:
-			resolutionFactor = 400;
-			break;
-		default:
-			resolutionFactor = 250;
-			break;
+		int bitrate = 0;
+		if (height <= 1080) {
+			bitrate = (codec == L"PyroWave 4:4:4") ? 500 : 400;
+		} else if (height <= 1440) {
+			bitrate = (codec == L"PyroWave 4:4:4") ? 600 : 500;
+		} else if (height <= 2160) {
+			bitrate = (codec == L"PyroWave 4:4:4") ? 800 : 700;
 		}
 
-		frameRateFactor = fps / 120.0f;
+		bitrate /= (120 / fps);
+		return bitrate * 1000;
 	}
 
 	return std::lround(resolutionFactor * frameRateFactor) * 1000;

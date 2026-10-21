@@ -202,11 +202,11 @@ void StatsRenderer::CreateWindowSizeDependentResources() {
 	int right = m_displayWidth / 3;
 	int bottom = 0;
 
-	// 13 lines of text (per line: 35 or 18)
+	// 13 lines of text (per line: 36 or 18)
 	if (m_displayHeight >= 2160) { // 24pt font
 		left = 20;
 		right = m_displayWidth / 2;
-		bottom = 455;
+		bottom = 468;
 	} else if (m_displayHeight >= 1440) { // 12pt font
 		left = 14;
 		bottom = 234;
